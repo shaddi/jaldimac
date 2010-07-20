@@ -122,6 +122,8 @@ void jaldi_hw_tx(char *buf, int len, struct net_device *dev)
 	return;
 }
 
+void jaldi_timer_tx(
+
 int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 {
 	int len;
@@ -135,15 +137,30 @@ int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 	
 	priv->skb = skb;
 	
+	/* create jaldi packet */
+	pkt = kmalloc (sizeof (struct jaldi_packet), GFP_KERNEL);
+	if (!pkt) {
+		printk (KERN_NOTICE "Out of memory while allocating packet for delayed tx\n");
+		return;
+	}
 	
-	/* Packets need to be sent at prescribed times. If the time
-	 * field of the packet is in the past, send it immediately (or drop?).
-	 * Otherwise set 
-	 *
-	 */
-	 
+	pkt->dev = dev;
+	pkt->next = NULL; /* XXX */
+	pkt->data = (u8) *skb;
+	pkt->tx_time = get_jaldi_tx_from_skb(skb);
 	
-	jaldi_hw_tx(data,len,dev);
+	/* add jaldi packet to tx_queue */
+	jaldi_tx_enqueue(dev,pkt);
+	
+	/* create kernel timer for packet transmission */
+	struct timer_list tx_timer;
+	init_timer(&tx_timer);
+	tx_timer.function = jaldi_timer_tx;
+	tx_timer.data = (unsigned long)*pkt;
+	tx_timer.expires = pkt->tx_time;
+	
+	//jaldi_hw_tx(data,len,dev);
+	
 	
 	return 0;
 
