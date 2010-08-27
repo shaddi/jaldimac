@@ -10,9 +10,9 @@ PKG_NAME:=jaldi
 PKG_VERSION:=2010-07-20
 PKG_RELEASE:=1
 
-PKG_SOURCE:=jaldi.tar.bz2
+#PKG_SOURCE:=jaldi.tar.bz2
 PKG_BUILD_DIR:=$(KERNEL_BUILD_DIR)/jaldi
-PKG_CAT:=bzcat
+#PKG_CAT:=bzcat
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -20,6 +20,7 @@ WMENU:=Wireless Drivers
 
 define KernelPackage/jaldi
 	TITLE:=JaldiMAC driver for Atheros wireless devices
+	SUBMENU:=$(WMENU)
 	VERSION:=$(LINUX_VERSION)+$(PKG_VERSION)
 	FILES:= \
 		$(PKG_BUILD_DIR)/ath9k_hw.$(LINUX_KMOD_SUFFIX) \
@@ -29,16 +30,17 @@ define KernelPackage/jaldi
 endef
 
 MAKE_OPTS:= \
-#	CROSS_COMPILE="$(KERNEL_CROSS)" \
-#	ARCH="$(LINUX_ARCH)" \ 
+	CROSS_COMPILE="$(KERNEL_CROSS)" \
+	ARCH="$(LINUX_KARCH)" \
 	KLIB_BUILD="$(LINUX_DIR)" \
 	KLIB=$(TARGET_MODULES_DIR)
 	
 	
 define Build/Prepare
 	rm -rf $(PKG_BUILD_DIR)
-	mkdir -p $(PKG_BUILD_DIR)
-	$(PKG_UNPACK)	
+#	mkdir -p $(PKG_BUILD_DIR)
+#	$(PKG_UNPACK)	
+	ln -s /home/shaddi/Code/packetmac/jaldi/jaldi $(KERNEL_BUILD_DIR)
 endef
 
 define Build/Compile/kmod

@@ -4,3 +4,19 @@ hw.h
 
 requirements:
 - pure net_device that provides a point for click to inject raw packets (including timestamps) and send over the air. base driver should simply initialize the hardware, provide an interface for sending packets (expecting a specific header format), and register an interrupt handler for receipt of packets. Rx must report back relevant device information, and there must be a straightforward way to set channel, etc. 
+
+
+
+- kernel module "stub" for jaldimac driver. currently does not really do too much. Based on my digging around ath9k, I believe it will be possible to build this upon the ath9k_hw module that is shipping with the ath9k driver version that Backfire ships with. 
+
+- Beginning of an implementation for timed packet sending. A lot of questions here regarding how best to implement this, especially with regard to what is going to be responsibility of click module vs. driver. 
+	- Current implementation: each packet has a timestamp (some field in header, presumably stripped before tx) that is passed to this driver; each packet gets a kernel timer set up for tx. Rx just passes everything up to Click module, which is then responsible for figuring out what to drop and what to 
+	- Potentially a better idea: Build a (priority) queue of packets that need to be sent, at some point. As Click passes packets to this driver, packets are added to that queue. When the station's tx slots begin, a interrupt is fired and we empty as much of the queue as possible within that slot (a second interrupt is fired to signal the end of the slot/allocation). This would require a bit more support in the Click module.
+	
+	- Questions: 
+		How does a station know when its downstream slot ends? When its upstream slot ends? Are these sent by master during downstream transmission?
+		What are the mechanics of a station join? Do we need some kind of immediate send?
+		How is contention slot time determined? 
+		 
+	
+- Current effort: Actually integrating the ath9k_hw module with my stub driver. Looking to provide an interface for Click to set channel, power, etc. This is still pretty opaque to me frankly. 

@@ -1,14 +1,13 @@
 /* 
  * jaldi 
- * "It's over ath9k"
  */
  
-#include <linux/config.h>
+
 #include <linux/init.h>
 #include <linux/moduleparam.h>
 #include <linux/module.h>
 
-#include <linux/kernel.h> /* printk() */
+#include <linux/kernel.h>
 #include <linux/types.h>
 
 #include <linux/netdevice.h>
@@ -17,28 +16,32 @@
 
 #include "jaldi.h"
 
-MODULE_AUTHOR("Shaddi Hasan")
-MODULE_LICENSE("Dual BSD/GPL")
+MODULE_AUTHOR("Shaddi Hasan");
+MODULE_LICENSE("Dual BSD/GPL");
 
 struct jaldi_priv {
 	struct net_device_stats stats;
 	int status;
+	int rx_int_enabled;
+	int tx_enabled;
 	struct jaldi_packet *tx_queue; /* packets scheduled for sending */
 	struct sk_buff *skb;
 	spinlock_t lock;
-	
-}
+};
 
 struct jaldi_packet {
 	struct jaldi_packet *next;
 	struct net_device *dev;
 	int datalen;
-	u8 data[ETH_DATA_LEN];
-	
+	//char data[ETH_DATA_LEN];
+	char data[52];
 	s64 tx_time; /* the time at which this packet should be sent */
+};
 
-}
-
+struct jaldi_hw {
+	//struct ath_hw *ahw;
+	int i;
+};
 
 
 /* Maintains a priority queue of jaldi_packets to be sent */
@@ -78,7 +81,7 @@ struct jaldi_packet *jaldi_tx_dequeue(struct net_device *dev) {
 int jaldi_open(struct net_device *dev)
 {
 	memcpy(dev->dev_addr, "\0TIER0", ETH_ALEN);
-	netf_start_queue(dev);
+	netif_start_queue(dev);
 	return 0;
 }
 
@@ -88,6 +91,7 @@ int jaldi_release(struct net_device *dev)
 	return 0;
 }
 
+/* Method stub from snull -- call from interrupt handler */
 void jaldi_rx(struct net_device *dev, struct jaldi_packet *pkt)
 {
 	struct sk_buff *skb;
@@ -115,6 +119,10 @@ void jaldi_rx(struct net_device *dev, struct jaldi_packet *pkt)
   	return;
 }
 
+int get_jaldi_tx_from_skb(struct sk_buff *skb) {
+	return 0; // TODO: decide on a packet format and implement this by reading protocol header field
+}
+
 void jaldi_hw_tx(char *buf, int len, struct net_device *dev)
 {
 	/* TODO: method stub. integrate w/ ath9k_hw */
@@ -122,13 +130,14 @@ void jaldi_hw_tx(char *buf, int len, struct net_device *dev)
 	return;
 }
 
-void jaldi_timer_tx(
+//void jaldi_timer_tx(
 
 int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 {
 	int len;
-	char *data
+	char *data;
 	struct jaldi_priv *priv = netdev_priv(dev);
+	struct jaldi_packet *pkt;
 	
 	data = skb->data;
 	len = skb->len;
@@ -141,29 +150,42 @@ int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 	pkt = kmalloc (sizeof (struct jaldi_packet), GFP_KERNEL);
 	if (!pkt) {
 		printk (KERN_NOTICE "Out of memory while allocating packet for delayed tx\n");
-		return;
+		return 0;
 	}
 	
 	pkt->dev = dev;
 	pkt->next = NULL; /* XXX */
-	pkt->data = (u8) *skb;
+//	pkt->data = skb->data;
 	pkt->tx_time = get_jaldi_tx_from_skb(skb);
 	
 	/* add jaldi packet to tx_queue */
 	jaldi_tx_enqueue(dev,pkt);
 	
 	/* create kernel timer for packet transmission */
-	struct timer_list tx_timer;
+/*	struct timer_list tx_timer;
 	init_timer(&tx_timer);
 	tx_timer.function = jaldi_timer_tx;
 	tx_timer.data = (unsigned long)*pkt;
-	tx_timer.expires = pkt->tx_time;
+	tx_timer.expires = pkt->tx_time;*/
 	
-	//jaldi_hw_tx(data,len,dev);
+	jaldi_hw_tx(data,len,dev);
 	
 	
 	return 0;
 
+}
+
+/* Enable rx (from snull) */
+static void jaldi_rx_ints(struct net_device *dev, int enable)
+{
+	struct jaldi_priv *priv = netdev_priv(dev);
+	priv->rx_int_enabled = enable;
+}
+
+/* Set up a device's packet pool. (from snull) */
+void jaldi_setup_pool(struct net_device *dev)
+{
+	return; /* TODO: Implement this */
 }
 
 struct net_device *jaldi_dev;
@@ -176,46 +198,61 @@ void jaldi_cleanup(void)
 	return;
 }
 
-
+static const struct net_device_ops jaldi_netdev_ops =
+{
+	.ndo_open				= jaldi_open,
+	.ndo_stop				= jaldi_release,
+	.ndo_start_xmit			= jaldi_tx,
+//	.ndo_get_stats			= jaldi_stats,
+};
 
 void jaldi_init(struct net_device *dev)
 {
+	printk(KERN_DEBUG "jaldi: jaldi_init start");
 	struct jaldi_priv *priv;
-	
+
 	ether_setup(dev);
-	dev->open				= jaldi_open;
-	dev->stop				= jaldi_release;
-	dev->set_config			= jaldi_config;
-	dev->hard_start_xmit	= jaldi_tx;
-	dev->do_ioctl			= jaldi_ioctl;
-	dev->get_stats			= jaldi_stats;
-	dev->change_mtu			= jaldi_change_mtu;
-	dev->rebuild_header		= jaldi_rebuild_header;
-	dev->hard_header		= jaldi_header;
-	dev->tx_timeout			= jaldi_tx_timeout;
-	dev->watchdog_timeo		= timeout;
-	
+
+	dev->netdev_ops = &jaldi_netdev_ops;
 	priv = netdev_priv(dev);
+
 	memset(priv,0,sizeof(struct jaldi_priv));
+
 	spin_lock_init(&priv->lock);
+	
 	jaldi_rx_ints(dev,1);
+
 	jaldi_setup_pool(dev);
+	printk(KERN_DEBUG "jaldi: jaldi_init end");
 }
 	
 
 int jaldi_init_module(void)
 {
 	int result, i, ret = -ENOMEM;
-	
+	printk(KERN_DEBUG "jaldi: creating netdev...");
 	jaldi_dev = alloc_netdev(sizeof(struct jaldi_priv), "tier%d", jaldi_init);
 	
-	if (jaldi_dev == NULL)
+	if (jaldi_dev == NULL) {
+		printk(KERN_ERR "jaldi_dev is null");
 		goto out;
-		
+	}	
 	
-	
+	printk(KERN_DEBUG "jaldi: netdev allocated.");
 		
-	out:
+	ret = -ENODEV;
+	if ((result = register_netdev(jaldi_dev))) 
+	{
+		printk(KERN_DEBUG "jaldi: error %i registering device \"%s\"%n", result, jaldi_dev->name);
+	}
+	else
+	{
+		ret = 0;
+	}
+		
+	printk(KERN_DEBUG "jaldi: netdev registered.");	
+	
+out:
 		if (ret)
 			jaldi_cleanup();
 		return ret;
