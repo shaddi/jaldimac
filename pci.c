@@ -117,7 +117,7 @@ static int jaldi_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	pci_read_config_word(pdev, PCI_SUBSYSTEM_ID, &subsysid);
 	ret = jaldi_init_device(); // TODO: Implement this. See ath9k/init.c:691.
 
-	printk(KERN_INFO "jaldi pci init done");
+	printk(KERN_INFO "jaldi pci init done\n");
 
 	return 0;
 

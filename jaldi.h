@@ -32,8 +32,23 @@ struct jaldi_softc {
 
 	spinlock_t wiphy_lock; /* spinlock to protect jaldi_wiphy data */
 	struct ath_wiphy *pri_wiphy;
+	
+	/* Hardware related */
+	struct tasklet_struct intr_tq; // interrupt task queue
+	struct ath_hw *sc_ah; // from ath9k_hw, main struct
+	struct __iomem *mem; // see pci_iomap and lwn article
+	int irq; // irq number...
+	spinlock_t sc_resetlock;
+	
+	u32 intrstatus; // keep track of reason for interrupt
+	u32 sc_flags; /* TODO: investigate the usage of this */
+	u16 ps_flags; /* powersave -- not used */
+	u16 curtxpow; /* tx power (.5 dBm units) */
 
 	struct tasklet_struct intr_tq;
+
+
+};
 
 #endif /* JALDI_H */
 
