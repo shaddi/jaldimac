@@ -101,3 +101,7 @@ static struct ieee80211_rate jaldi_legacy_rates[] = {
 	RATE(540, 0x0c, 0),
 };
 
+int jaldi_init_device(u16 devid, struct jaldi_softc *sc, u16 subsyid, const struct ath_bus_ops *bus_ops)
+{
+
+}

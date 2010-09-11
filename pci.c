@@ -5,11 +5,27 @@
 #include <linux/pci.h>
 #include "jaldi.h"
 
+/* device id table taken from ath9k/pci.c */
+static DEFINE_PCI_DEVICE_TABLE(jaldi_pci_id_table) = {
+	{ PCI_VDEVICE(ATHEROS, 0x0023) }, /* PCI   */
+	{ PCI_VDEVICE(ATHEROS, 0x0024) }, /* PCI-E */
+	{ PCI_VDEVICE(ATHEROS, 0x0027) }, /* PCI   */
+	{ PCI_VDEVICE(ATHEROS, 0x0029) }, /* PCI   */
+	{ PCI_VDEVICE(ATHEROS, 0x002A) }, /* PCI-E */
+	{ PCI_VDEVICE(ATHEROS, 0x002B) }, /* PCI-E */
+	{ PCI_VDEVICE(ATHEROS, 0x002C) }, /* PCI-E 802.11n bonded out */
+	{ PCI_VDEVICE(ATHEROS, 0x002D) }, /* PCI   */
+	{ PCI_VDEVICE(ATHEROS, 0x002E) }, /* PCI-E */
+	{ 0 }
+};
 
 static int jaldi_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 {
 	void __iomem *mem;
+	struct jaldi_softc *sc;
 	u8 csz;
+	u16 subsysid;
+	u32 val;
 	int ret = 0;
 	
 	i = pci_enable_device(pdev)
@@ -75,10 +91,41 @@ static int jaldi_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto err_iomap;
 	}
 	
-	// allocate memory for jaldi driver (wiphy + softc)
-	
-	ret = request_irq(pdev->irq, , IRQF_SHARED, "jaldi", 
+	sc = NULL; // TODO: allocate softc
 
+	if (!sc) {
+		dev_err(&pdev->dev, "No memory for jaldi_softc\n");
+		ret = -ENOMEM;
+		goto err_alloc_hw;
+	}
+
+	pci_set_drvdata(pdev, sc);
+	sc->dev = &pdev->dev;
+	sc->mem = mem;
+
+	sc->sc_flags |= SC_OP_INVALID; // irq is not ready, don't try to use the device yet.
+
+	ret = request_irq(pdev->irq, jaldi_isr, IRQF_SHARED, "jaldi", sc);
+
+	sc->irq = pdev->irq; // Keep track of IRQ in softc
+
+	if (ret) {
+		dev_err(&pdev->dev, "request_irq failed\n");
+		goto err_irq;
+	}
+
+	pci_read_config_word(pdev, PCI_SUBSYSTEM_ID, &subsysid);
+	ret = jaldi_init_device(); // TODO: Implement this. See ath9k/init.c:691.
+
+	printk(KERN_INFO "jaldi pci init done");
+
+	return 0;
+
+err_init:
+	free_irq(sc->irq, sc);
+err_irq: // should free softc once this is implemented
+err_alloc_hw:
+	pci_iounmap(pdev, mem);
 err_iomap:
 	pci_release_region(pdev, 0);
 err_region:
@@ -88,6 +135,20 @@ err_dma:
 	return ret;
 }
 
+static void jaldi_pci_remove(struct pci_dev *pdev) {
+	
+	struct jaldi_softc *sc = pci_get_drvdata(pdev); 
+	void __iomem *mem = sc->mem;
+
+	jaldi_deinit_device(sc); // TODO: de-init device
+	free_irq(sc->irq, sc);
+
+	pci_iounmap(pdev, mem);
+	pci_disable_device(pdev);
+	pci_release_region(pdev, 0);
+}
+
+/* XXX: suspend and resume are not currently implemented since we don't do anything with power management yet. */
 
 static struct pci_driver jaldi_pci_driver = {
 	.name       = "jaldi",
@@ -97,7 +158,7 @@ static struct pci_driver jaldi_pci_driver = {
 #ifdef CONFIG_PM
 	.suspend    = jaldi_pci_suspend,
 	.resume     = jaldi_pci_resume,
-#endif /* CONFIG_PM (what is this? XXX) */
+#endif /* CONFIG_PM */
 };
 
 
