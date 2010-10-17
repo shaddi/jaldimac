@@ -28,8 +28,9 @@ static int jaldi_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	u32 val;
 	int ret = 0;
 	
-	i = pci_enable_device(pdev)
-	if (i) return error; 
+	if (pci_enable_device(pdev)) {
+		return -EIO;
+	}
 	
 	ret = pci_set_dma_mask(pdev, DMA_BIT_MASK(32));
 	if (ret) {
@@ -115,7 +116,7 @@ static int jaldi_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	}
 
 	pci_read_config_word(pdev, PCI_SUBSYSTEM_ID, &subsysid);
-	ret = jaldi_init_device(); // TODO: Implement this. See ath9k/init.c:691.
+	ret = jaldi_init_device(sc); // TODO: Implement this. See ath9k/init.c:691.
 
 	printk(KERN_INFO "jaldi pci init done\n");
 

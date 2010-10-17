@@ -19,68 +19,58 @@
 MODULE_AUTHOR("Shaddi Hasan");
 MODULE_LICENSE("Dual BSD/GPL");
 
-struct jaldi_priv {
-	struct net_device_stats stats;
-	int status;
-	int rx_int_enabled;
-	int tx_enabled;
-	struct jaldi_packet *tx_queue; /* packets scheduled for sending */
-	struct sk_buff *skb;
-	spinlock_t lock;
-};
-
-struct jaldi_packet {
-	struct jaldi_packet *next;
-	struct net_device *dev;
-	int datalen;
-	//char data[ETH_DATA_LEN];
-	char data[52];
-	s64 tx_time; /* the time at which this packet should be sent */
-};
-
-struct jaldi_hw {
-	//struct ath_hw *ahw;
-	int i;
-};
-
-
 /* Maintains a priority queue of jaldi_packets to be sent */
 void jaldi_tx_enqueue(struct net_device *dev, struct jaldi_packet *pkt) {
 	unsigned long flags;
-	struct jaldi_priv *priv = netdev_priv(dev);
+	struct jaldi_softc *sc = netdev_priv(dev);
 	
-	spin_lock_irqsave(&priv->lock, flags);
-	if(priv->tx_queue == NULL || pkt->tx_time < priv->tx_queue->tx_time){
+	spin_lock_irqsave(&sc->lock, flags);
+	if(sc->tx_queue == NULL || pkt->tx_time < sc->tx_queue->tx_time){
 		/* New packet goes in front */
-		pkt->next = priv->tx_queue;
-		priv->tx_queue = pkt;
+		pkt->next = sc->tx_queue;
+		sc->tx_queue = pkt;
 	} else {
-		struct jaldi_packet *curr = priv->tx_queue;
+		struct jaldi_packet *curr = sc->tx_queue;
 		while(curr->next != NULL && pkt->tx_time < curr->next->tx_time){	
 			curr = curr->next;
 		}
 		pkt->next = curr->next;
 		curr->next = pkt;
 	}
-	spin_unlock_irqrestore(&priv->lock, flags);
+	spin_unlock_irqrestore(&sc->lock, flags);
 }
 
 /* Returns the next jaldi_packet to be transmitted */
 struct jaldi_packet *jaldi_tx_dequeue(struct net_device *dev) {
-	struct jaldi_priv *priv = netdev_priv(dev);
+	struct jaldi_softc *sc = netdev_priv(dev);
 	struct jaldi_packet *pkt;
 	unsigned long flags;
 	
-	spin_lock_irqsave(&priv->lock, flags);
-	pkt = priv->tx_queue;
-	if (pkt != NULL) priv->tx_queue = pkt->next;
-	spin_unlock_irqrestore(&priv->lock, flags);
+	spin_lock_irqsave(&sc->lock, flags);
+	pkt = sc->tx_queue;
+	if (pkt != NULL) sc->tx_queue = pkt->next;
+	spin_unlock_irqrestore(&sc->lock, flags);
 	return pkt;
 }
 
+irqreturn_t jaldi_isr(int irq, void *dev)
+{
+	struct jaldi_softc *sc = dev;
+	struct jaldi_hw *hw = sc->sc_jh;
+
+	if (!sc->hw_ready) { return IRQ_NONE; }
+	
+	/* shared irq, not for us */
+	if(!jaldi_hw_intrpend(hw)) { return IRQ_NONE; }
+
+	// TODO: determine how we want to handle interrupts
+}
+
+	
+
 int jaldi_open(struct net_device *dev)
 {
-	memcpy(dev->dev_addr, "\0TIER0", ETH_ALEN);
+	memcpy(dev->dev_addr, "\0JALDI0", ETH_ALEN);
 	netif_start_queue(dev);
 	return 0;
 }
@@ -95,14 +85,14 @@ int jaldi_release(struct net_device *dev)
 void jaldi_rx(struct net_device *dev, struct jaldi_packet *pkt)
 {
 	struct sk_buff *skb;
-	struct jaldi_priv *priv = netdev_priv(dev);
+	struct jaldi_softc *sc = netdev_priv(dev);
 	
 	skb = dev_alloc_skb(pkt->datalen+2);
 	
 	if(!skb) {
 		if (printk_ratelimit())
-			printk(KERN_NOTICE "snull rx: low on mem - packet dropped\n");
-		priv->stats.rx_dropped++;
+			printk(KERN_NOTICE "jaldi_rx: low on mem - packet dropped\n");
+		sc->stats.rx_dropped++;
 		goto out;
 	}
 	
@@ -112,8 +102,8 @@ void jaldi_rx(struct net_device *dev, struct jaldi_packet *pkt)
 	skb->dev = dev;
 	skb->protocol = eth_type_trans(skb, dev);
 	skb->ip_summed = CHECKSUM_NONE;
-	priv->stats.rx_packets++;
-	priv->stats.rx_bytes += pkt->datalen;
+	sc->stats.rx_packets++;
+	sc->stats.rx_bytes += pkt->datalen;
 	netif_rx(skb);
   out:
   	return;
@@ -123,20 +113,75 @@ int get_jaldi_tx_from_skb(struct sk_buff *skb) {
 	return 0; // TODO: decide on a packet format and implement this by reading protocol header field
 }
 
-void jaldi_hw_tx(char *buf, int len, struct net_device *dev)
+// TODO: should return appropriate type
+int jaldi_get_qos_type_from_skb(struct sk_buff *skb) {
+	return JALDI_QOS_BULK; // TODO: make this random-ish for testing
+}
+
+
+
+/* This method basically does the following:
+ * - assigns skb to hw buffer
+ * - sets up tx flags based on current config
+ * - allocates DMA buffer
+ * - 
+ */
+int jaldi_hw_tx(struct jaldi_packet *pkt)
 {
-	/* TODO: method stub. integrate w/ ath9k_hw */
-	printk(KERN_DEBUG "jaldi_hw_tx\n");
+	struct jaldi_buf bf;
+	
+
+	// TODO: set queue number in hw
+	// bf.txq = softc.txq[qnum];
+
+	// TODO: set config tx flags
+
+	// setup buffer
+	memset(&bf, 0, sizeof(struct jaldi_buf));
+	bf->bf_state.bf_type |= BUF_HT
+
+	bf->bf_dma_context = dma_map_single(sc->dev, pkt->skb->data, 
+						pkt->skb->len, DMA_TO_DEVICE);
+
+	if(unlikely(dma_mapping_error(sc->dev, bf->bf_dma_context))) {
+		jaldi_print(0, "dma_mapping_error during TX\n");
+		return -ENOMEM;
+	}
+
+	bf->bf_buf_addr = bf->bf_dma_context;
+
+	
+
+/* Note to self: goal here is to get an sk_buff into a jaldi_buf, which encapsulates
+ all the relevant /device/ specific information: dma stuff, etc. We need to couple this
+ with a jaldi_tx_control which ensures the proper tx settings go with the sk_buff and push
+ this to the device. 
+
+ In short, the jaldi_buf represents an encapsulation of data that takes care of all the
+ dma stuff. The jaldi_tx_control encapsulates all the tx settings we need: channel, power, the
+ hardware queue we're on (WMA_BE or WMA_BK or WMA_VO). The sk_buff should really be in a 
+ jaldi_packet, which will encapsulate the driver logic: which virtual queue we're on.
+
+ This function should do everything needed to move a jaldi_packet into dma. The tx interrupt
+ handler should drain the low level queues and initiate transmission over the air.
+ */
+
 	return;
 }
 
 //void jaldi_timer_tx(
 
+/* 
+ * This function receives an sk_buff from the kernel, and packages it up into a
+ * jaldi_packet. Other high-level tx behaviors should be handled here. This 
+ * should be completely device agnostic, as device-specific stuff should be
+ * handled in jaldi_hw_tx.
+ */
 int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 {
 	int len;
 	char *data;
-	struct jaldi_priv *priv = netdev_priv(dev);
+	struct jaldi_softc *sc = netdev_priv(dev);
 	struct jaldi_packet *pkt;
 	
 	data = skb->data;
@@ -144,42 +189,47 @@ int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 	
 	dev->trans_start = jiffies;
 	
-	priv->skb = skb;
+	sc->skb = skb;
 	
 	/* create jaldi packet */
 	pkt = kmalloc (sizeof (struct jaldi_packet), GFP_KERNEL);
 	if (!pkt) {
-		printk (KERN_NOTICE "Out of memory while allocating packet for delayed tx\n");
+		printk(KERN_NOTICE "jaldi: Out of memory while allocating packet\n");
 		return 0;
 	}
 	
 	pkt->dev = dev;
 	pkt->next = NULL; /* XXX */
-//	pkt->data = skb->data;
+	pkt->data = skb->data;
 	pkt->tx_time = get_jaldi_tx_from_skb(skb);
+	pkt->qos_type = jaldi_get_qos_type_from_skb(skb);
 	
 	/* add jaldi packet to tx_queue */
-	jaldi_tx_enqueue(dev,pkt);
-	
+	jaldi_tx_enqueue(sc,pkt); // should add packet to proper software queue
+
+
 	/* create kernel timer for packet transmission */
 /*	struct timer_list tx_timer;
 	init_timer(&tx_timer);
 	tx_timer.function = jaldi_timer_tx;
 	tx_timer.data = (unsigned long)*pkt;
 	tx_timer.expires = pkt->tx_time;*/
-	
-	jaldi_hw_tx(data,len,dev);
-	
+
+	/* check for skb type: control packet or standard */
+	if( jaldi_skb_type(skb) == JALDI_CONTROL ) { // should check skb->cb for bit, or header
+		jaldi_hw_ctl(pkt);
+	} else {
+		jaldi_hw_tx(pkt);
+	}
 	
 	return 0;
 
 }
 
 /* Enable rx (from snull) */
-static void jaldi_rx_ints(struct net_device *dev, int enable)
+static void jaldi_rx_ints(struct jaldi_softc *sc, int enable)
 {
-	struct jaldi_priv *priv = netdev_priv(dev);
-	priv->rx_int_enabled = enable;
+	sc->rx_int_enabled = enable;
 }
 
 /* Set up a device's packet pool. (from snull) */
@@ -200,8 +250,8 @@ void jaldi_cleanup(void)
 
 static const struct net_device_ops jaldi_netdev_ops =
 {
-	.ndo_open				= jaldi_open,
-	.ndo_stop				= jaldi_release,
+	.ndo_open			= jaldi_open,
+	.ndo_stop			= jaldi_release,
 	.ndo_start_xmit			= jaldi_tx,
 //	.ndo_get_stats			= jaldi_stats,
 };
@@ -209,18 +259,26 @@ static const struct net_device_ops jaldi_netdev_ops =
 void jaldi_init(struct net_device *dev)
 {
 	printk(KERN_DEBUG "jaldi: jaldi_init start");
-	struct jaldi_priv *priv;
+	struct jaldi_softc *sc;
 
 	ether_setup(dev);
 
 	dev->netdev_ops = &jaldi_netdev_ops;
-	priv = netdev_priv(dev);
+	sc = netdev_priv(dev);
 
-	memset(priv,0,sizeof(struct jaldi_priv));
-
-	spin_lock_init(&priv->lock);
+	memset(sc,0,sizeof(struct jaldi_softc));
 	
-	jaldi_rx_ints(dev,1);
+	spin_lock_init(&sc->lock);
+
+	sc->net_dev = dev;
+	
+	if(!jaldi_init_interrupts(sc)) {
+		jaldi_print(0, "error initializing interrupt handlers\n");
+		return -1;
+	}
+
+	jaldi_rx_ints(sc,1);
+	jaldi_tx_ints(sc,1);
 
 	jaldi_setup_pool(dev);
 	printk(KERN_DEBUG "jaldi: jaldi_init end");
@@ -231,7 +289,7 @@ int jaldi_init_module(void)
 {
 	int result, i, ret = -ENOMEM;
 	printk(KERN_DEBUG "jaldi: creating netdev...");
-	jaldi_dev = alloc_netdev(sizeof(struct jaldi_priv), "tier%d", jaldi_init);
+	jaldi_dev = alloc_netdev(sizeof(struct jaldi_softc), "jaldi%d", jaldi_init);
 	
 	if (jaldi_dev == NULL) {
 		printk(KERN_ERR "jaldi_dev is null");
@@ -243,7 +301,7 @@ int jaldi_init_module(void)
 	ret = -ENODEV;
 	if ((result = register_netdev(jaldi_dev))) 
 	{
-		printk(KERN_DEBUG "jaldi: error %i registering device \"%s\"%n", result, jaldi_dev->name);
+		printk(KERN_DEBUG "jaldi: error %i registering device \"%s\"\n", result, jaldi_dev->name);
 	}
 	else
 	{

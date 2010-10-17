@@ -2,7 +2,7 @@
 #include <linux/ath9k_platform.h>
 #include "jaldi.h"
 
-static void jaldi_ahb_read_cachesize(NULL, int *csz) {
+static void jaldi_ahb_read_cachesize(struct ath_common *common, int *csz) {
 	*csz = L1_CACHE_BYTES >> 2;
 }
 
@@ -15,7 +15,7 @@ static bool jaldi_ahb_eeprom_read(struct ath_common *common, u32 off, u16 *data)
 
 	pdata = (struct ath9k_platform_data *) pdev->dev.platform_data;
 	if (off >= (ARRAY_SIZE(pdata->eeprom_data))) {
-		ath_print(common, ATH_DBG_FATAL,	// XXX Does this debug method work?
+		jaldi_print(common, JALDI_DBG_FATAL,	
 			  "%s: flash read failed, offset %08x "
 			  "is out of range\n",
 			  __func__, off);
@@ -29,7 +29,7 @@ static bool jaldi_ahb_eeprom_read(struct ath_common *common, u32 off, u16 *data)
 static struct ath_bus_ops jaldi_ahb_bus_ops = {
 	.ath_bus_type = ATH_AHB,
 	.read_cachesize = jaldi_ahb_read_cachesize,
-	.eeprom_read = ath_ahb_eeprom_read,
+	.eeprom_read = jaldi_ahb_eeprom_read,
 };
 
 static int jaldi_ahb_probe(struct platform_device *pdev) {
@@ -38,7 +38,7 @@ static int jaldi_ahb_probe(struct platform_device *pdev) {
 	struct resource *res;
 	int irq;
 	int ret = 0;
-	struct ath_hw *ah;
+	struct jaldi_hw *hw;
 	char hw_name[64];
 
 	if (!pdev->dev.platform_data) {
@@ -92,14 +92,14 @@ static int jaldi_ahb_probe(struct platform_device *pdev) {
 		goto err_free_hw;
 	}
 
-	ret = jaldi_init_device(); // TODO: Implement this
+	ret = jaldi_init_device(sc); // TODO: Implement this
 	if (ret) {
 		dev_err(&pdev->dev, "failed to initialize device\n");
 		goto err_irq;
 	}
 
-	ah = sc->sc_ah; // pointer to ath_hw struct
-	ath9k_hw_name(ah, hw_name, sizeof(hw_name));
+	hw = sc->sc_hw; // pointer to jaldi_hw struct
+	ath9k_hw_name(hw, hw_name, sizeof(hw_name));
 	printk(KERN_INFO "jaldi: %s mem=0x%1x, irq=%d\n", hw_name, (unsigned long)mem, irq);
 	return 0;
 
@@ -132,7 +132,7 @@ static int jaldi_ahb_remove(struct platform_device *pdev) {
 // standard linux platform_driver stuff
 static struct platform_driver jaldi_ahb_driver = {
 	.probe 		= jaldi_ahb_probe,
-	.remove		= jaldi_ahb_remobe,
+	.remove		= jaldi_ahb_remove,
 	.driver		= {
 		.name	= "jaldi",
 		.owner	= THIS_MODULE,

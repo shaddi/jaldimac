@@ -1,6 +1,4 @@
 config JALDI
 	tristate "Atheros 802.11n wireless cards support"
-	depends on ATH9K_HW
-	select ATH9K_HW
 	---help---
 	  This is the Jaldi module.

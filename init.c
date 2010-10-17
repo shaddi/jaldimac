@@ -7,44 +7,29 @@
 /* We use the hw_value as an index into our private channel structure */
 
 #define CHAN2G(_freq, _idx)  { \
+	.channel = (_freq), \
 	.center_freq = (_freq), \
 	.hw_value = (_idx), \
 	.max_power = 20, \
 }
 
 #define CHAN5G(_freq, _idx) { \
-	.band = IEEE80211_BAND_5GHZ, \
+	.channel = (_freq), \
 	.center_freq = (_freq), \
 	.hw_value = (_idx), \
 	.max_power = 20, \
 }
 
-/* Some 2 GHz radios are actually tunable on 2312-2732
+/* From a9k:
+ * "Some 5 GHz radios are actually tunable on XXXX-YYYY
  * on 5 MHz steps, we support the channels which we know
  * we have calibration data for all cards though to make
- * this static */
-static struct ieee80211_channel jaldi_2ghz_chantable[] = {
-	CHAN2G(2412, 0), /* Channel 1 */
-	CHAN2G(2417, 1), /* Channel 2 */
-	CHAN2G(2422, 2), /* Channel 3 */
-	CHAN2G(2427, 3), /* Channel 4 */
-	CHAN2G(2432, 4), /* Channel 5 */
-	CHAN2G(2437, 5), /* Channel 6 */
-	CHAN2G(2442, 6), /* Channel 7 */
-	CHAN2G(2447, 7), /* Channel 8 */
-	CHAN2G(2452, 8), /* Channel 9 */
-	CHAN2G(2457, 9), /* Channel 10 */
-	CHAN2G(2462, 10), /* Channel 11 */
-	CHAN2G(2467, 11), /* Channel 12 */
-	CHAN2G(2472, 12), /* Channel 13 */
-	CHAN2G(2484, 13), /* Channel 14 */
-};
-
-/* Some 5 GHz radios are actually tunable on XXXX-YYYY
- * on 5 MHz steps, we support the channels which we know
- * we have calibration data for all cards though to make
- * this static */
-static struct ieee80211_channel jaldi_5ghz_chantable[] = {
+ * this static"
+ *
+ * Because we (JaldiMAC) are not doing anything with calibration yet,
+ * perhaps we can leverage this capability. TODO: does 9280 support this?
+ */
+static struct jadli_channel jaldi_5ghz_chantable[] = {
 	/* _We_ call this UNII 1 */
 	CHAN5G(5180, 14), /* Channel 36 */
 	CHAN5G(5200, 15), /* Channel 40 */
@@ -75,33 +60,68 @@ static struct ieee80211_channel jaldi_5ghz_chantable[] = {
 	CHAN5G(5825, 37), /* Channel 165 */
 };
 
-/* Atheros hardware rate code addition for short premble */
-#define SHPCHECK(__hw_rate, __flags) \
-	((__flags & IEEE80211_RATE_SHORT_PREAMBLE) ? (__hw_rate | 0x04 ) : 0)
-
-#define RATE(_bitrate, _hw_rate, _flags) {              \
+/* List of rates we can select from. 
+ * TODO: What is the hardware limit for these rates? 
+ */
+#define RATE(_bitrate, _hw_rate) {              \
 	.bitrate        = (_bitrate),                   \
-	.flags          = (_flags),                     \
 	.hw_value       = (_hw_rate),                   \
-	.hw_value_short = (SHPCHECK(_hw_rate, _flags))  \
 }
 
-static struct ieee80211_rate jaldi_legacy_rates[] = {
-	RATE(10, 0x1b, 0),
-	RATE(20, 0x1a, IEEE80211_RATE_SHORT_PREAMBLE),
-	RATE(55, 0x19, IEEE80211_RATE_SHORT_PREAMBLE),
-	RATE(110, 0x18, IEEE80211_RATE_SHORT_PREAMBLE),
-	RATE(60, 0x0b, 0),
-	RATE(90, 0x0f, 0),
-	RATE(120, 0x0a, 0),
-	RATE(180, 0x0e, 0),
-	RATE(240, 0x09, 0),
-	RATE(360, 0x0d, 0),
-	RATE(480, 0x08, 0),
-	RATE(540, 0x0c, 0),
+static struct jaldi_rate jaldi_rates[] = {
+	RATE(10, 0x1b),
+	RATE(20, 0x1a),
+	RATE(55, 0x19),
+	RATE(110, 0x18),
+	RATE(60, 0x0b),
+	RATE(90, 0x0f),
+	RATE(120, 0x0a),
+	RATE(180, 0x0e),
+	RATE(240, 0x09),
+	RATE(360, 0x0d),
+	RATE(480, 0x08),
+	RATE(540, 0x0c),
+};
+
+static void jaldi_iowrite32(struct jaldi_hw *hw, u32 val, u32 reg_offset) {
+	struct jaldi_softc *sc = hw->hw_sc;
+
+	if (hw->serialize_regmode = SER_REG_MODE_ON) {
+		unsigned long flags;
+		spin_lock_irqsave(&sc->sc_serial_rw, flags);
+		iowrite32(val, sc->mem + reg_offset);
+		spin_unlock_irqrestore(&sc->sc_serial_rw, flags);
+	} else {
+		iowrite32(val, sc->mem + reg_offset);
+	}
+}
+
+static void jaldi_ioread32(struct jaldi_hw *hw, u32 reg_offset) {
+	struct jaldi_softc *sc = hw->hw_sc;
+	u32 val; 
+
+	if (hw->serialize_regmode = SER_REG_MODE_ON) {
+		unsigned long flags;
+		spin_lock_irqsave(&sc->sc_serial_rw, flags);
+		val = ioread32(sc->mem + reg_offset);
+		spin_unlock_irqrestore(&sc->sc_serial_rw, flags);
+	} else {
+		val = ioread32(sc->mem + reg_offset);
+	}
+}
+
+static const struct ath_ops jaldi_io_ops = {
+	.read = jaldi_ioread32,
+	.write = jaldi_iowrite32,
 };
 
 int jaldi_init_device(u16 devid, struct jaldi_softc *sc, u16 subsyid, const struct ath_bus_ops *bus_ops)
 {
-
+	
 }
+
+int jaldi_tx_init(struct jaldi_softc *sc, int nbufs)
+{
+	int error = 0;
+	
+	spin_lock_init(&sc->txbufferlock);
