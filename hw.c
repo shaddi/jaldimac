@@ -164,6 +164,27 @@ static bool jaldi_hw_set_power_awake(struct jaldi_hw *hw, int setChip)
 	return true;
 }
 
+/* Note: we should not be putting device to sleep, so this should not be used right now. */
+static void jaldi_set_power_sleep(struct jaldi_hw *hw, int setChip)
+{
+	REG_SET_BIT(hw, AR_STA_ID1, AR_STA_ID1_PWR_SAV);
+	if (setChip) {
+		/*
+		 * Clear the RTC force wake bit to allow the
+		 * mac to go to sleep.
+		 */
+		REG_CLR_BIT(hw, AR_RTC_FORCE_WAKE,
+			    AR_RTC_FORCE_WAKE_EN);
+		if (!AR_SREV_9100(hw) && !AR_SREV_9300_20_OR_LATER(hw))
+			REG_WRITE(hw, AR_RC, AR_RC_AHB | AR_RC_HOSTIF);
+
+		/* Shutdown chip. Active low */
+		if (!AR_SREV_5416(hw) && !AR_SREV_9271(hw))
+			REG_CLR_BIT(hw, (AR_RTC_RESET),
+				    AR_RTC_RESET_EN);
+	}
+}
+
 bool jaldi_hw_setpower(struct jaldi_hw *hw, enum jaldi_power_mode mode)
 {
 	int status = true, setChip = true;
@@ -365,6 +386,8 @@ static bool jaldi_hw_set_reset_reg(struct jaldi_hw *hw, u32 type) {
 	}
 }
 
+
+
 static bool jaldi_hw_reset(struct jaldi_hw *hw, struct jaldi_channel *chan) {
 	/* Steps
 	 * 1. Save existing hw state (chainmask, channel, etc)
@@ -372,12 +395,14 @@ static bool jaldi_hw_reset(struct jaldi_hw *hw, struct jaldi_channel *chan) {
 	 * 3. Re-initialize hw with saved state
 	 */
 
+	 // chainmask save goes here
+
 	if(!hw->chip_fullsleep) {
 		jaldi_hw_abortpcurecv(hw); // TODO
 		if(!jaldi_hw_stopdmarecv(hw)) { jaldi_print(0,"Failed to stop recv dma\n"); }
 	}
 
-	if
+		
 
 }
 

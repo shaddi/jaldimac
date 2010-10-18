@@ -11,6 +11,30 @@
 
 #include "reg.h"
 
+#define ATHEROS_VENDOR_ID	0x168c
+
+#define AR5416_DEVID_PCI	0x0023
+#define AR5416_DEVID_PCIE	0x0024
+#define AR9160_DEVID_PCI	0x0027
+#define AR9280_DEVID_PCI	0x0029
+#define AR9280_DEVID_PCIE	0x002a
+#define AR9285_DEVID_PCIE	0x002b
+#define AR2427_DEVID_PCIE	0x002c
+#define AR9287_DEVID_PCI	0x002d
+#define AR9287_DEVID_PCIE	0x002e
+#define AR9300_DEVID_PCIE	0x0030
+
+#define AR5416_AR9100_DEVID	0x000b
+
+#define	AR_SUBVENDOR_ID_NOG	0x0e11
+#define AR_SUBVENDOR_ID_NEW_A	0x7065
+#define AR5416_MAGIC		0x19641014
+
+#define JALDI_AMPDU_LIMIT_MAX		(64 * 1024 - 1)
+#define	JALDI_DEFAULT_NOISE_FLOOR	-95
+#define JALDI_RSSI_BAD			-128
+#define JALDI_WAIT_TIMEOUT		100000 /* (us) */
+
 /* Register operation macros */
 #define REG_WRITE(_jh, _reg, _val) \
 	(_jh)->io_ops->write((_jh), (_val), (_reg))
@@ -20,19 +44,19 @@
 #define ENABLE_REGWRITE_BUFFER(_ah)					\
 	do {								\
 		if (AR_SREV_9271(_ah))					\
-			ath9k_hw_common(_ah)->ops->enable_write_buffer((_ah)); \
+			ath9k_hw_common(_ah)->ops->enable_write_buffer((_ah)); \ // TODO
 	} while (0)
 
 #define DISABLE_REGWRITE_BUFFER(_ah)					\
 	do {								\
 		if (AR_SREV_9271(_ah))					\
-			ath9k_hw_common(_ah)->ops->disable_write_buffer((_ah)); \
+			ath9k_hw_common(_ah)->ops->disable_write_buffer((_ah)); \ // TODO
 	} while (0)
 
 #define REGWRITE_BUFFER_FLUSH(_ah)					\
 	do {								\
 		if (AR_SREV_9271(_ah))					\
-			ath9k_hw_common(_ah)->ops->write_flush((_ah));	\
+			ath9k_hw_common(_ah)->ops->write_flush((_ah));	\ // TODO
 	} while (0)
 
 #define SM(_v, _f)  (((_v) << _f##_S) & _f)
@@ -67,7 +91,6 @@
 // it's unclear what these do: document TODO
 #define SM(_v, _f)  (((_v) << _f##_S) & _f)
 #define MS(_v, _f)  (((_v) & _f) >> _f##_S)
-
 /* End register r/w macros */
 
 

@@ -149,6 +149,42 @@ static void jaldi_pci_remove(struct pci_dev *pdev) {
 	pci_release_region(pdev, 0);
 }
 
+/* bus ops */
+static void jaldi_pci_read_cachesize(struct jaldi_softc *sc, int *csz) {
+	u8 u8tmp;
+	pci_read_config_byte(to_pci_dev(sc-dev), PCI_CACHE_LINE_SIZE, &u8tmp);
+	*csz = (int)u8tmp;
+
+	/* Apparently cache line size register sometimes is not set, so we check here */
+	if (*csz == 0) { *csz == DEFAULT_CACHELINE >> 2; }
+}
+
+static bool jaldi_pci_eeprom_read(struct jaldi_softc *sc, u8 off, u16 *data)
+{
+	struct jaldi_hw *hw = (struct jaldi_hw *) sc->hw;
+	
+	sc->reg_ops->read(hw, AR5416_EEPROM_OFFSET + (off << AR5416_EEPROM_S));
+
+	if (!jaldi_hw_wait(hw,
+			   AR_EEPROM_STATUS_DATA,
+			   AR_EEPROM_STATUS_DATA_BUSY | 
+			   AR_EEPROM_STATUS_DATA_PROT_ACCESS, 0,
+			   JALDI_WAIT_TIMEOUT))
+			   { return false; }
+
+	*data = MS(sc->reg_ops->read(hw, AR_EEPROM_STATUS_DATA), 
+		   AR_EEPROM_STATUS_DATA_VAL);
+
+	return true;
+}
+
+static const struct jaldi_bus_ops jaldi_pci_bus_ops = {
+	.jaldi_bus_type	= JALDI_PCI,
+	.read_cachesize = jaldi_pci_read_cachesize,
+	.eeprom_read = jaldi_pci_eeprom_read,
+};
+
+
 /* XXX: suspend and resume are not currently implemented since we don't do anything with power management yet. */
 
 static struct pci_driver jaldi_pci_driver = {

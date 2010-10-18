@@ -110,7 +110,7 @@ static void jaldi_ioread32(struct jaldi_hw *hw, u32 reg_offset) {
 	}
 }
 
-static const struct ath_ops jaldi_io_ops = {
+static const struct jaldi_register_ops jaldi_reg_ops = {
 	.read = jaldi_ioread32,
 	.write = jaldi_iowrite32,
 };

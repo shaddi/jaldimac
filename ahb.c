@@ -2,20 +2,19 @@
 #include <linux/ath9k_platform.h>
 #include "jaldi.h"
 
-static void jaldi_ahb_read_cachesize(struct ath_common *common, int *csz) {
+static void jaldi_ahb_read_cachesize(struct jaldi_softc *sc, int *csz) {
 	*csz = L1_CACHE_BYTES >> 2;
 }
 
 
-static bool jaldi_ahb_eeprom_read(struct ath_common *common, u32 off, u16 *data)
+static bool jaldi_ahb_eeprom_read(struct jaldi_softc *sc, u32 off, u16 *data)
 {
-	struct jaldi_softc *sc = (struct jaldi_softc *)common->priv;
 	struct platform_device *pdev = to_platform_device(sc->dev);
 	struct ath9k_platform_data *pdata; // making use of linux/ath9k_platform
 
 	pdata = (struct ath9k_platform_data *) pdev->dev.platform_data;
 	if (off >= (ARRAY_SIZE(pdata->eeprom_data))) {
-		jaldi_print(common, JALDI_DBG_FATAL,	
+		jaldi_print(JALDI_DBG_FATAL,	
 			  "%s: flash read failed, offset %08x "
 			  "is out of range\n",
 			  __func__, off);
@@ -26,8 +25,8 @@ static bool jaldi_ahb_eeprom_read(struct ath_common *common, u32 off, u16 *data)
 	return true;
 }
 
-static struct ath_bus_ops jaldi_ahb_bus_ops = {
-	.ath_bus_type = ATH_AHB,
+static struct jaldi_bus_ops jaldi_ahb_bus_ops = {
+	.jaldi_bus_type = JALDI_AHB,
 	.read_cachesize = jaldi_ahb_read_cachesize,
 	.eeprom_read = jaldi_ahb_eeprom_read,
 };
