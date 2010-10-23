@@ -60,3 +60,18 @@ static int jaldi_hw_set_freq(struct jaldi_hw *hw, struct jaldi_channel *chan)
 	return 0;
 }
 
+/*
+ * Remaining phy_ops (as seen in ar9002_phy.c)
+ * set_rf_regs = NULL;
+ * set_rf_alloc_ext_banks = NULL;
+ * set_rf_free_ext_banks = NULL;
+ * rf_set_freq (implemented above)
+ * spur_mitigate_freq = ar9002_hw_spur_mitigate; (not sure what this does)
+ * olc_init = ar9002_olc_init
+ * 	- For before AR9280, this does not seem to be used (i.e., not supported on chip)
+ *	- For AR9287 and later, does something with tempsense 
+ *	- For everything else, does something with gain (gain table... what is this?)
+ * compute_pll_control = ar9002_hw_compute_pll_control
+ 	- ...
+ * do_getnf = ar9002_hw_do_getnf (reads various CCA registers and sets nf to 'min pwr' on each)
+ */
