@@ -158,6 +158,37 @@ struct jaldi_bitrate {
 	u16 hw_value;
 };
 
+enum jaldi_bus_type {
+	JALDI_PCI,
+	JALDI_AHB,
+};
+
+struct jaldi_bus_ops {
+	enum jaldi_bus_type type;
+	void (*read_cachesieze)(struct jaldi_softc *sc, int *cache_size);
+	bool (*eeprom_read)(struct jaldi_softc *sc, u32 off, u16 *data);
+};
+
+/**
+ * struct jaldi_reg_ops - Register read/write operations
+ *        (formerly ath_ops)
+ * @read: Register read
+ * @write: Register write
+ *
+ * The below are not used on the hardware jaldi supports:
+ * @enable_write_buffer: Enable multiple register writes
+ * @disable_write_buffer: Disable multiple register writes
+ * @write_flush: Flush buffered register writes
+ */
+
+struct jaldi_register_ops {
+	unsigned int (*read)(void *, u32 reg_offset);
+	void (*write)(void *, u32 val, u32 reg_offset);
+	void (*enable_write_buffer)(void *);
+	void (*disable_write_buffer)(void *);
+	void (*write_flush) (void *);
+};
+
 struct jaldi_hw_ops {
 	
 	bool (*macversion_supported)(u32 macversion);
@@ -181,6 +212,8 @@ struct jaldi_hw {
 
 	/* functions to control hw */
 	struct jaldi_hw_ops ops;
+	struct jaldi_register_ops *reg_ops;
+	struct jaldi_bus_ops *bus_ops;
 	struct eeprom_ops eep_ops; // This is more or less copied from ath9k
 };
 

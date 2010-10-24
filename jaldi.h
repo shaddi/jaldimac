@@ -53,38 +53,6 @@
 struct jaldi_wiphy;
 struct jaldi_rate_table;
 
-enum jaldi_bus_type {
-	JALDI_PCI,
-	JALDI_AHB,
-};
-
-struct jaldi_bus_ops {
-	enum jaldi_bus_type type;
-	void (*read_cachesieze)(struct jaldi_softc *sc, int *cache_size);
-	bool (*eeprom_read)(struct jaldi_softc *sc, u32 off, u16 *data);
-};
-
-/**
- * struct jaldi_reg_ops - Register read/write operations
- *        (formerly ath_ops)
- * @read: Register read
- * @write: Register write
- *
- * The below are not used on the hardware jaldi supports:
- * @enable_write_buffer: Enable multiple register writes
- * @disable_write_buffer: Disable multiple register writes
- * @write_flush: Flush buffered register writes
- */
-
-struct jaldi_register_ops {
-	unsigned int (*read)(void *, u32 reg_offset);
-	void (*write)(void *, u32 val, u32 reg_offset);
-	void (*enable_write_buffer)(void *);
-	void (*disable_write_buffer)(void *);
-	void (*write_flush) (void *);
-};
-
-
 enum qos_type {
 	JALDI_QOS_BULK,
 	JALDI_QOS_LATENCY_SENSITIVE,
@@ -160,10 +128,7 @@ struct jaldi_softc {
 	struct jaldi_tx tx;
 
 	/* ops */
-	struct jaldi_register_ops *reg_ops;
-	struct jaldi_bus_ops *bus_ops;
-
-
+	// none at softc level yet...
 };
 
 struct jaldi_wiphy {

@@ -89,9 +89,9 @@ bool jaldi_hw_get_lower_upper_index(u8 target, u8 *pList, u16 listSize,
 	return false;
 }
 
-bool jaldi_hw_nvram_read(struct ath_common *common, u32 off, u16 *data)
+bool jaldi_hw_nvram_read(struct jaldi_hw *hw, u32 off, u16 *data)
 {
-	return common->bus_ops->eeprom_read(common, off, data);
+	return hw->bus_ops->eeprom_read(hw, off, data);
 }
 
 void jaldi_hw_fill_vpd_table(u8 pwrMin, u8 pwrMax, u8 *pPwrList,
