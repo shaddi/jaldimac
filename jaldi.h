@@ -133,7 +133,7 @@ struct jaldi_softc {
 
 	/* Hardware related */
 	struct tasklet_struct intr_tq; // interrupt task queue
-	struct jaldi_hw *hw; // from ath9k_hw, main struct
+	struct jaldi_hw *hw; // from ath9k_hw, hw main struct
 	void __iomem *mem; // see pci_iomap and lwn article
 	int irq; // irq number...
 	spinlock_t sc_resetlock;
@@ -153,6 +153,8 @@ struct jaldi_softc {
 	struct jaldi_packet *tx_queue; /* packets scheduled for sending */
 	struct sk_buff *skb;
 	spinlock_t lock;
+
+	u8 macaddr[ETH_ALEN];
 
 	/* tx/rx */
 	struct jaldi_tx tx;

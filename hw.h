@@ -10,6 +10,7 @@
 #define HW_H
 
 #include "reg.h"
+#include "eeprom.h"
 
 #define ATHEROS_VENDOR_ID	0x168c
 
@@ -180,6 +181,7 @@ struct jaldi_hw {
 
 	/* functions to control hw */
 	struct jaldi_hw_ops ops;
+	struct eeprom_ops eep_ops; // This is more or less copied from ath9k
 };
 
 #endif

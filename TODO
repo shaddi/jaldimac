@@ -1,0 +1,23 @@
+ahb.c:
+	- write tests
+	- allocate softc during probe
+	- verify jaldi_init_device and jaldi_deinit_device fulfil semantics
+
+pci.c: PCI support
+	- write tests
+	- allocate softc
+	- verify jaldi_init_device and jaldi_deinit_device fulfill semantics
+
+debug.c/debug.h: Debugging
+	- Implement debugging levels
+
+hw.c
+
+hw.h: Hardware-specific header
+	- Finish jaldi_hw struct (what does this entail?)
+	- Verify no overlap w/ jaldi.h
+
+eeprom.c/.h: EEPROM calls
+	- Everything. Identify what is neccessary.
+
+
