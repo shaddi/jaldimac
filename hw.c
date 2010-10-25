@@ -80,7 +80,9 @@ static void jaldi_hw_read_versions(struct jaldi_hw *hw) {
 	}
 }
 
-/* Checks to see if we have a pending interrupt in hw */
+/* Checks to see if we have a pending interrupt in hw 
+ * We use this when we're on a shared IRQ to identify our interrupts
+ */
 bool jaldi_hw_intrpend(struct jaldi_hw *hw) {
 	u32 host_isr;
 
@@ -101,20 +103,41 @@ bool jaldi_hw_wait(struct jaldi_hw *hw, u32 reg, u32 mask, u32 val, u32 timeout)
 {
 	int i;
 
-	BUG_ON(timeout < AH_TIME_QUANTUM);
+	BUG_ON(timeout < JALDI_TIME_QUANTUM);
 
-	for (i = 0; i < (timeout / AH_TIME_QUANTUM); i++) {
+	for (i = 0; i < (timeout / JALDI_TIME_QUANTUM); i++) {
 		if ((REG_READ(hw, reg) & mask) == val)
 			return true;
 
-		udelay(AH_TIME_QUANTUM);
+		udelay(JALDI_TIME_QUANTUM);
 	}
 
-	jaldi_print(ATH_DBG_ANY,
+	jaldi_print(JALDI_WARN,
 		  "timeout (%d us) on reg 0x%x: 0x%08x & 0x%08x != 0x%08x\n",
 		  timeout, reg, REG_READ(ah, reg), mask, val);
 
 	return false;
+}
+
+/* Time synchronization function
+ * Reads 64bit TSF from hardware. Could be useful. */
+#define JALDI_MAX_TSF_READ 10
+u64 jaldi_hw_gettsf64(struct jaldi_hw *hw)
+{
+	u32 tsf_lower, tsf_upper1, tsf_upper2;
+	int i;
+
+	tsf_upper1 = REG_READ(hw, AR_TSF_U32);
+	for (i = 0; i < JALDI_MAX_TSF_READ; i++) {
+		tsf_lower = REG_READ(hw, AR_TSF_L32);
+		tsf_upper2 = REG_READ(hw, AR_TSF_U32);
+		if (tsf_upper2 == tsf_upper1)
+			break;
+		tsf_upper1 = tsf_upper2;
+	}
+
+	WARN_ON( i == JALDI_MAX_TSF_READ );
+	return (((u64)tsf_upper1 << 32) | tsf_lower);
 }
 
 /***********
@@ -164,7 +187,7 @@ static bool jaldi_hw_set_power_awake(struct jaldi_hw *hw, int setChip)
 	return true;
 }
 
-/* Note: we should not be putting device to sleep, so this should not be used right now. */
+/* We should not be putting device to sleep, so this should not be used */
 static void jaldi_set_power_sleep(struct jaldi_hw *hw, int setChip)
 {
 	REG_SET_BIT(hw, AR_STA_ID1, AR_STA_ID1_PWR_SAV);
@@ -198,7 +221,7 @@ bool jaldi_hw_setpower(struct jaldi_hw *hw, enum jaldi_power_mode mode)
 	if (hw->power_mode == mode)
 		return status;
 
-	jaldi_print(ATH_DBG_RESET, "%s -> %s\n",
+	jaldi_print(JALDI_DEBUG, "%s -> %s\n",
 		  modes[hw->power_mode], modes[mode]);
 
 	switch (mode) {
@@ -210,10 +233,10 @@ bool jaldi_hw_setpower(struct jaldi_hw *hw, enum jaldi_power_mode mode)
 		hw->chip_fullsleep = true;
 		break;
 	case JALDI_PM_NETWORK_SLEEP:
-		jaldi_print(0,"Network sleep is not supported.\n");
+		jaldi_print(JALDI_FATAL,"Network sleep is not supported.\n");
 		return false;
 	default:
-		jaldi_print(ATH_DBG_FATAL,
+		jaldi_print(JALDI_FATAL,
 			  "Unknown power mode %u\n", mode);
 		return false;
 	}
@@ -225,7 +248,6 @@ bool jaldi_hw_setpower(struct jaldi_hw *hw, enum jaldi_power_mode mode)
 /************************************/
 /* HW Attach, Detach, Init Routines */
 /************************************/
-
 static void jaldi_hw_disablepcie(struct jaldi_hw *hw)
 {
 	if (AR_SREV_9100(hw))
@@ -326,13 +348,93 @@ static void jaldi_hw_init_defaults(struct jaldi_hw *hw)
 }
 
 static void jaldi_hw_init_macaddr {
-	//hw->
+	
+	struct jaldi_softc *sc = hw->sc;
+	u32 sum; 
+	int i;
+	u16 eeval;
+	u32 EEP_MAC[] = { EEP_MAC_LSW, EEP_MAC_MID, EEP_MAC_MSW };
 
-	return; // TODO
+	sum = 0;
+	for (i = 0; i < 3; i++) {
+		eeval = ah->eep_ops->get_eeprom(ah, EEP_MAC[i]);
+		sum += eeval;
+		common->macaddr[2 * i] = eeval >> 8;
+		common->macaddr[2 * i + 1] = eeval & 0xff;
+	}
+	if (sum == 0 || sum == 0xffff * 3)
+		return -EADDRNOTAVAIL;
+
+	return 0;
+}
+
+static inline void jaldi_hw_set_dma(struct jaldi_hw *hw)
+{
+	u32 regval;
+
+	ENABLE_REGWRITE_BUFFER(hw);
+
+	/*
+	 * set AHB_MODE not to do cacheline prefetches
+	*/
+	if (!AR_SREV_9300_20_OR_LATER(hw)) {
+		regval = REG_READ(hw, AR_AHB_MODE);
+		REG_WRITE(hw, AR_AHB_MODE, regval | AR_AHB_PREFETCH_RD_EN);
+	}
+
+	/*
+	 * let mac dma reads be in 128 byte chunks
+	 */
+	regval = REG_READ(hw, AR_TXCFG) & ~AR_TXCFG_DMASZ_MASK;
+	REG_WRITE(hw, AR_TXCFG, regval | AR_TXCFG_DMASZ_128B);
+
+	REGWRITE_BUFFER_FLUSH(hw);
+	DISABLE_REGWRITE_BUFFER(hw);
+
+	/*
+	 * Restore TX Trigger Level to its pre-reset value.
+	 * The initial value depends on whether aggregation is enabled, and is
+	 * adjusted whenever underruns are detected.
+	 */
+	if (!AR_SREV_9300_20_OR_LATER(hw))
+		REG_RMW_FIELD(hw, AR_TXCFG, AR_FTRIG, hw->tx_trig_level);
+
+	ENABLE_REGWRITE_BUFFER(hw);
+
+	/*
+	 * let mac dma writes be in 128 byte chunks
+	 */
+	regval = REG_READ(hw, AR_RXCFG) & ~AR_RXCFG_DMASZ_MASK;
+	REG_WRITE(hw, AR_RXCFG, regval | AR_RXCFG_DMASZ_128B);
+
+	/*
+	 * Setup receive FIFO threshold to hold off TX activities
+	 */
+	REG_WRITE(hw, AR_RXFIFO_CFG, 0x200);
+
+	/*
+	 * reduce the number of usable entries in PCU TXBUF to avoid
+	 * wrap around issues.
+	 */
+	if (AR_SREV_9285(hw)) {
+		/* For AR9285 the number of Fifos are reduced to half.
+		 * So set the usable tx buf size also to half to
+		 * avoid data/delimiter underruns
+		 */
+		REG_WRITE(hw, AR_PCU_TXBUF_CTRL,
+			  AR_9285_PCU_TXBUF_CTRL_USABLE_SIZE);
+	} else if (!AR_SREV_9271(hw)) {
+		REG_WRITE(hw, AR_PCU_TXBUF_CTRL,
+			  AR_PCU_TXBUF_CTRL_USABLE_SIZE);
+	}
+
+	REGWRITE_BUFFER_FLUSH(hw);
+	DISABLE_REGWRITE_BUFFER(hw);
 }
 
 static bool jaldi_hw_set_reset(struct jaldi_hw *hw, int type) {
 
+}
 
 static bool jaldi_hw_set_reset_power_on(struct jaldi_hw *hw) {
 	ENABLE_REGWRITE_BUFFER(hw);
@@ -388,22 +490,75 @@ static bool jaldi_hw_set_reset_reg(struct jaldi_hw *hw, u32 type) {
 
 
 
-static bool jaldi_hw_reset(struct jaldi_hw *hw, struct jaldi_channel *chan) {
+static bool jaldi_hw_reset(struct jaldi_hw *hw, struct jaldi_channel *chan,
+				bool bChangeChannel) {
 	/* Steps
 	 * 1. Save existing hw state (chainmask, channel, etc)
 	 * 2. Reset the chip.
 	 * 3. Re-initialize hw with saved state
 	 */
 
+	u32 saveDefAntenna;
+	u64 tsf = 0;
 	 // chainmask save goes here
+	struct jaldi_channel *curchan = hw->curchan;
 
 	if(!hw->chip_fullsleep) {
 		jaldi_hw_abortpcurecv(hw); // TODO
-		if(!jaldi_hw_stopdmarecv(hw)) { jaldi_print(0,"Failed to stop recv dma\n"); }
+		if(!jaldi_hw_stopdmarecv(hw)) 
+			{ jaldi_print(0,"Failed to stop recv dma\n"); }
+	}
+	
+
+	if (!jaldi_hw_setpower(hw, JALDI_PM_AWAKE))
+		return -EIO;
+
+	if (curchan && !hw->chip_fullsleep)
+		jaldi_hw_getnf(hw, curchan); // TODO
+	
+
+	// load new noise floor info if we're changing the channel
+	if (bChannelChange &&
+	    (hw->chip_fullsleep != true) &&
+	    (hw->curchan != NULL) &&
+	    (chan->channel != hw->curchan->channel) &&
+	    ((chan->channelFlags & CHANNEL_ALL) ==
+	     (hw->curchan->channelFlags & CHANNEL_ALL)) &&
+	    !AR_SREV_9280(ah)) {
+
+		if (jaldi_hw_channel_change(hw, chan)) { // TODO
+		// loadnf seems to only be implemented for ar9003
+		//	jaldi_hw_loadnf(hw, hw->curchan); 
+			jaldi_hw_start_nfcal(hw);
+			return 0;
+		}
 	}
 
-		
+	
+	saveDefAntenna = REG_READ(hw, AR_DEF_ANTENNA);
+	if (saveDefAntenna == 0)
+		saveDefAntenna = 1;
 
+	/* For chips on which RTC reset is done, save TSF before it gets cleared */
+	if (AR_SREV_9280(hw) && hw->eep_ops->get_eeprom(hw, EEP_OL_PWRCTRL))
+		tsf = jaldi_hw_gettsf64(ah);
+
+	
+	/* Only required on the first reset (TODO: Only run on first reset...) */
+	if (AR_SREV_9271(hw)) {
+		REG_WRITE(ah,
+			  AR9271_RESET_POWER_DOWN_CONTROL,
+			  AR9271_RADIO_RF_RST);
+		udelay(50);
+	}
+
+	if (!jaldi_hw_chip_reset(hw, chan)) {
+		jaldi_print(JALDI_FATAL, "Chip reset failed\n");
+		return -EINVAL;
+	}
+
+
+	
 }
 
 static void jaldi_hw_attach_ops(struct jaldi_hw *hw)
@@ -427,11 +582,6 @@ static int __jaldi_hw_init(struct jaldi_hw *hw)
 		jaldi_print(JALDI_DEBUG_FATAL, "Couldn't reset the chip (%s, line %d)\n", __FILE__, __LINE__);
 		return -EIO;
 	}
-
-	
-
-
-
 
 }
 

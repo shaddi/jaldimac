@@ -20,4 +20,4 @@ hw.h: Hardware-specific header
 eeprom.c/.h: EEPROM calls
 	- Everything. Identify what is neccessary.
 
-
+Oct 24 notes: was working on final hw_init stuff (chip reset, config struct. see hw.c/hw_reset stuff). Also looking at the phy again. Believe most of the settings I want to be able to do are incorporated in the eeprom code. Need to get the hw and init code done, which should finish up all the underlying code we need to get another compile milestone done. Then it's on to servicing the hardware interrupts and keeping our own kernel timer to handle tx.

@@ -35,6 +35,7 @@
 #define	JALDI_DEFAULT_NOISE_FLOOR	-95
 #define JALDI_RSSI_BAD			-128
 #define JALDI_WAIT_TIMEOUT		100000 /* (us) */
+#define JALDI_TIME_QUANTUM		10
 
 /* Register operation macros */
 #define REG_WRITE(_jh, _reg, _val) \
@@ -60,9 +61,13 @@
 			ath9k_hw_common(_ah)->ops->write_flush((_ah));	\ // TODO
 	} while (0)
 
+/* Shift and mask (and vice versa)
+ * "_f##_S" appends an "_S" to the passed field name; reg.h contains shift 
+ * amounts for each field. */
 #define SM(_v, _f)  (((_v) << _f##_S) & _f)
 #define MS(_v, _f)  (((_v) & _f) >> _f##_S)
-// RMW: "Read modify write"
+
+/* RMW: "Read modify write" */
 #define REG_RMW(_a, _r, _set, _clr)    \
 	REG_WRITE(_a, _r, (REG_READ(_a, _r) & ~(_clr)) | (_set))
 #define REG_RMW_FIELD(_a, _r, _f, _v) \
@@ -109,12 +114,37 @@ struct jaldi_hw_version {
 };
 
 #define HT40_CHANNEL_CENTER_SHIFT	10
-// channel mode flags
-#define CHANNEL_2GHZ     		0x00080
-#define CHANNEL_5GHZ 			0x00100
-#define CHANNEL_HT20			0x10000
-#define CHANNEL_HT40PLUS		0x20000
-#define CHANNEL_HT40MINUS		0x40000
+// channel mode flags -- from ath9k, many not needed here
+#define CHANNEL_CW_INT    0x00002
+#define CHANNEL_CCK       0x00020
+#define CHANNEL_OFDM      0x00040
+#define CHANNEL_2GHZ      0x00080
+#define CHANNEL_5GHZ      0x00100
+#define CHANNEL_PASSIVE   0x00200
+#define CHANNEL_DYN       0x00400
+#define CHANNEL_HALF      0x04000
+#define CHANNEL_QUARTER   0x08000
+#define CHANNEL_HT20      0x10000
+#define CHANNEL_HT40PLUS  0x20000
+#define CHANNEL_HT40MINUS 0x40000
+
+#define CHANNEL_A           (CHANNEL_5GHZ|CHANNEL_OFDM)
+#define CHANNEL_B           (CHANNEL_2GHZ|CHANNEL_CCK)
+#define CHANNEL_G           (CHANNEL_2GHZ|CHANNEL_OFDM)
+#define CHANNEL_G_HT20      (CHANNEL_2GHZ|CHANNEL_HT20)
+#define CHANNEL_A_HT20      (CHANNEL_5GHZ|CHANNEL_HT20)
+#define CHANNEL_G_HT40PLUS  (CHANNEL_2GHZ|CHANNEL_HT40PLUS)
+#define CHANNEL_G_HT40MINUS (CHANNEL_2GHZ|CHANNEL_HT40MINUS)
+#define CHANNEL_A_HT40PLUS  (CHANNEL_5GHZ|CHANNEL_HT40PLUS)
+#define CHANNEL_A_HT40MINUS (CHANNEL_5GHZ|CHANNEL_HT40MINUS)
+#define CHANNEL_ALL				\
+	(CHANNEL_OFDM|				\
+	 CHANNEL_CCK|				\
+	 CHANNEL_2GHZ |				\
+	 CHANNEL_5GHZ |				\
+	 CHANNEL_HT20 |				\
+	 CHANNEL_HT40PLUS |			\
+	 CHANNEL_HT40MINUS)
 
 /* Macros for checking chanmode */
 #define IS_CHAN_HT20(_c) (((_c)->chanmode == CHANNEL_HT20)) 
@@ -209,6 +239,8 @@ struct jaldi_hw {
 	u32 intr_txqs;
 	u8 txchainmask;
 	u8 rxchainmask;
+
+	bool chip_fullsleep;
 
 	/* functions to control hw */
 	struct jaldi_hw_ops ops;
