@@ -1001,7 +1001,6 @@ static void jaldi_hw_set_def_power_per_rate_table(struct jaldi_hw *hw,
 #define REDUCE_SCALED_POWER_BY_TWO_CHAIN     6  /* 10*log10(2)*2 */
 #define REDUCE_SCALED_POWER_BY_THREE_CHAIN   9 /* 10*log10(3)*2 */
 
-	struct ath_regulatory *regulatory = jaldi_hw_regulatory(hw); // XXX
 	struct ar5416_eeprom_def *pEepData = &hw->eeprom.def;
 	u16 twiceMaxEdgePower = AR5416_MAX_RATE_POWER;
 	static const u16 tpScaleReductionTable[5] =
@@ -1050,11 +1049,6 @@ static void jaldi_hw_set_def_power_per_rate_table(struct jaldi_hw *hw,
 					   twiceLargestAntenna, 0);
 
 	maxRegAllowedPower = twiceMaxRegulatoryPower + twiceLargestAntenna;
-
-	if (regulatory->tp_scale != ATH9K_TP_SCALE_MAX) {
-		maxRegAllowedPower -=
-			(tpScaleReductionTable[(regulatory->tp_scale)] * 2);
-	}
 
 	scaledPower = min(powerLimit, maxRegAllowedPower);
 
@@ -1261,7 +1255,6 @@ static void jaldi_hw_def_set_txpower(struct jaldi_hw *hw,
 				    u8 powerLimit)
 {
 #define RT_AR_DELTA(x) (ratesArray[x] - cck_ofdm_delta)
-	struct ath_regulatory *regulatory = jaldi_hw_regulatory(hw); // XXX
 	struct ar5416_eeprom_def *pEepData = &hw->eeprom.def;
 	struct modal_eep_header *pModal =
 		&(pEepData->modalHeader[IS_CHAN_2GHZ(chan)]);
@@ -1395,26 +1388,6 @@ static void jaldi_hw_def_set_txpower(struct jaldi_hw *hw,
 	else if (IS_CHAN_HT20(chan))
 		i = rateHt20_0;
 
-	if (AR_SREV_9280_10_OR_LATER(hw))
-		regulatory->max_power_level =
-			ratesArray[i] + AR5416_PWR_TABLE_OFFSET_DB * 2;
-	else
-		regulatory->max_power_level = ratesArray[i];
-
-	switch(ar5416_get_ntxchains(hw->txchainmask)) {
-	case 1:
-		break;
-	case 2:
-		regulatory->max_power_level += INCREASE_MAXPOW_BY_TWO_CHAIN;
-		break;
-	case 3:
-		regulatory->max_power_level += INCREASE_MAXPOW_BY_THREE_CHAIN;
-		break;
-	default:
-		jaldi_print(JALDI_DEBUG,
-			  "Invalid chainmask configuration\n");
-		break;
-	}
 }
 
 static u8 jaldi_hw_def_get_num_ant_config(struct jaldi_hw *hw,
