@@ -88,10 +88,10 @@ struct jaldi_buf {
 
 struct jaldi_tx {
 	u16 seq_no;
-	int hwq_map[ATH9k_WME_AC_VO+1] // the four ath9k wma hw queues
+	int hwq_map[ATH9K_WME_AC_VO+1]; // the four ath9k wma hw queues
 	spinlock_t txbuflock;
 	struct list_head txbuf;
-	struct 
+};
 
 struct jaldi_softc {
 	struct device *dev;

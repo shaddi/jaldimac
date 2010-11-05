@@ -325,6 +325,67 @@ static void jaldi_hw_spur_mitigate(struct jaldi_hw *hw,
 	DISABLE_REGWRITE_BUFFER(hw);
 }
 
+static void jaldi_hw_do_getnf(struct jaldi_hw *hw,
+			      int16_t nfarray[NUM_NF_READINGS])
+{
+	int16_t nf;
+
+	nf = MS(REG_READ(ah, AR_PHY_CCA), AR9280_PHY_MINCCA_PWR);
+
+	if (nf & 0x100)
+		nf = 0 - ((nf ^ 0x1ff) + 1);
+		jaldi_print(common, ATH_DBG_CALIBRATE,
+		  "NF calibrated [ctl] [chain 0] is %d\n", nf);
+
+	if (AR_SREV_9271(hw) && (nf >= -114))
+		nf = -116;
+
+	nfarray[0] = nf;
+
+	if (!AR_SREV_9285(hw) && !AR_SREV_9271(hw)) {
+		nf = MS(REG_READ(hw, AR_PHY_CH1_CCA),
+				AR9280_PHY_CH1_MINCCA_PWR);
+
+		if (nf & 0x100)
+			nf = 0 - ((nf ^ 0x1ff) + 1);
+		jaldi_print(JALDI_INFO,
+			  "NF calibrated [ctl] [chain 1] is %d\n", nf);
+		nfarray[1] = nf;
+	}
+
+	nf = MS(REG_READ(hw, AR_PHY_EXT_CCA), AR9280_PHY_EXT_MINCCA_PWR);
+	if (nf & 0x100)
+		nf = 0 - ((nf ^ 0x1ff) + 1);
+	jaldi_print(JALDI_INFO,
+		  "NF calibrated [ext] [chain 0] is %d\n", nf);
+
+	if (AR_SREV_9271(hw) && (nf >= -114))
+		nf = -116;
+
+	nfarray[3] = nf;
+
+	if (!AR_SREV_9285(hw) && !AR_SREV_9271(hw)) {
+		nf = MS(REG_READ(hw, AR_PHY_CH1_EXT_CCA),
+				AR9280_PHY_CH1_EXT_MINCCA_PWR);
+
+		if (nf & 0x100)
+			nf = 0 - ((nf ^ 0x1ff) + 1);
+		jaldi_print(JALDI_INFO,
+			  "NF calibrated [ext] [chain 1] is %d\n", nf);
+		nfarray[4] = nf;
+	}
+}
+
+void jaldi_hw_attach_phy_ops(struct jaldi_hw *hw)
+{
+	struct jaldi_hw_ops *ops = hw->ops;
+
+	ops->rf_set_freq = jaldi_hw_set_freq;
+	ops->spur_mitigate_freq = jaldi_hw_spur_mitigate;
+	ops->do_getnf = jaldi_hw_do_getnf;
+	
+}
+
 /*
  * Remaining phy_ops (as seen in ar9002_phy.c)
  * set_rf_regs = NULL;

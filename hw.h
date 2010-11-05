@@ -31,7 +31,7 @@
 #define AR_SUBVENDOR_ID_NEW_A	0x7065
 #define AR5416_MAGIC		0x19641014
 
-#define JALDI_AMPDU_LIMIT_MAX		(64 * 1024 - 1)
+#define JALDI_AMPDU_LIMIT_MAX		(64 * 1024 - 1) /* Not doing frame agg... */
 #define	JALDI_DEFAULT_NOISE_FLOOR	-95
 #define JALDI_RSSI_BAD			-128
 #define JALDI_WAIT_TIMEOUT		100000 /* (us) */
@@ -39,26 +39,27 @@
 
 /* Register operation macros */
 #define REG_WRITE(_jh, _reg, _val) \
-	(_jh)->io_ops->write((_jh), (_val), (_reg))
+	(_jh)->reg_ops->write((_jh), (_val), (_reg))
 
 #define REG_READ(_jh, _reg) \
-	(_jh)->io_ops->read((_jh), (_reg))
+	(_jh)->reg_ops->read((_jh), (_reg))
+
 #define ENABLE_REGWRITE_BUFFER(_ah)					\
 	do {								\
 		if (AR_SREV_9271(_ah))					\
-			ath9k_hw_common(_ah)->ops->enable_write_buffer((_ah)); \ // TODO
+			(_hw)->reg_ops->enable_write_buffer((_hw)); \ // TODO
 	} while (0)
 
-#define DISABLE_REGWRITE_BUFFER(_ah)					\
+#define DISABLE_REGWRITE_BUFFER(_hw)					\
 	do {								\
-		if (AR_SREV_9271(_ah))					\
-			ath9k_hw_common(_ah)->ops->disable_write_buffer((_ah)); \ // TODO
+		if (AR_SREV_9271(_hw))					\
+			(_hw)->reg_ops->disable_write_buffer((_hw)); \ // TODO
 	} while (0)
 
-#define REGWRITE_BUFFER_FLUSH(_ah)					\
+#define REGWRITE_BUFFER_FLUSH(_hw)					\
 	do {								\
-		if (AR_SREV_9271(_ah))					\
-			ath9k_hw_common(_ah)->ops->write_flush((_ah));	\ // TODO
+		if (AR_SREV_9271(_hw))					\
+			(_hw)->reg_ops->write_flush((_hw)); \
 	} while (0)
 
 /* Shift and mask (and vice versa)
@@ -147,9 +148,60 @@ struct jaldi_hw_version {
 	 CHANNEL_HT40MINUS)
 
 /* Macros for checking chanmode */
+#define IS_CHAN_B(_c) ((_c)->chanmode == CHANNEL_B)
 #define IS_CHAN_HT20(_c) (((_c)->chanmode == CHANNEL_HT20)) 
 #define IS_CHAN_HT40(_c) (((_c)->chanmode == CHANNEL_HT40PLUS) || \
 			  ((_c)->chanmode == CHANNEL_HT40MINUS))
+
+enum jaldi_intr_type {
+	JALDI_INT_RX = 0x00000001,
+	JALDI_INT_RXDESC = 0x00000002,
+	JALDI_INT_RXHP = 0x00000001,
+	JALDI_INT_RXLP = 0x00000002,
+	JALDI_INT_RXNOFRM = 0x00000008,
+	JALDI_INT_RXEOL = 0x00000010,
+	JALDI_INT_RXORN = 0x00000020,
+	JALDI_INT_TX = 0x00000040,
+	JALDI_INT_TXDESC = 0x00000080,
+	JALDI_INT_TIM_TIMER = 0x00000100,
+	JALDI_INT_BB_WATCHDOG = 0x00000400,
+	JALDI_INT_TXURN = 0x00000800,
+	JALDI_INT_MIB = 0x00001000,
+	JALDI_INT_RXPHY = 0x00004000,
+	JALDI_INT_RXKCM = 0x00008000,
+	JALDI_INT_SWBA = 0x00010000,
+	JALDI_INT_BMISS = 0x00040000,
+	JALDI_INT_BNR = 0x00100000,
+	JALDI_INT_TIM = 0x00200000,
+	JALDI_INT_DTIM = 0x00400000,
+	JALDI_INT_DTIMSYNC = 0x00800000,
+	JALDI_INT_GPIO = 0x01000000,
+	JALDI_INT_CABEND = 0x02000000,
+	JALDI_INT_TSFOOR = 0x04000000,
+	JALDI_INT_GENTIMER = 0x08000000,
+	JALDI_INT_CST = 0x10000000,
+	JALDI_INT_GTT = 0x20000000,
+	JALDI_INT_FATAL = 0x40000000,
+	JALDI_INT_GLOBAL = 0x80000000,
+	JALDI_INT_BMISC = JALDI_INT_TIM |
+		JALDI_INT_DTIM |
+		JALDI_INT_DTIMSYNC |
+		JALDI_INT_TSFOOR |
+		JALDI_INT_CABEND,
+	JALDI_INT_COMMON = JALDI_INT_RXNOFRM |
+		JALDI_INT_RXDESC |
+		JALDI_INT_RXEOL |
+		JALDI_INT_RXORN |
+		JALDI_INT_TXURN |
+		JALDI_INT_TXDESC |
+		JALDI_INT_MIB |
+		JALDI_INT_RXPHY |
+		JALDI_INT_RXKCM |
+		JALDI_INT_SWBA |
+		JALDI_INT_BMISS |
+		JALDI_INT_GPIO,
+	JALDI_INT_NOCARD = 0xffffffff
+};
 
 struct jaldi_channel {
 	u16 channel; // MHz
@@ -177,10 +229,16 @@ enum jaldi_power_mode {
 };
 
 // different types of hw reset we perform.
-enum {
+enum jaldi_reset_type {
 	JALDI_RESET_POWER_ON,
 	JALDI_RESET_WARM,
 	JALDI_RESET_COLD,
+};
+
+enum jaldi_opmode {
+	JALDI_UNSPECIFIED,
+	JALDI_MASTER,
+	JALDI_CLIENT,
 };
 
 struct jaldi_bitrate {
@@ -191,6 +249,72 @@ struct jaldi_bitrate {
 enum jaldi_bus_type {
 	JALDI_PCI,
 	JALDI_AHB,
+};
+
+/* For hardware jaldimac supports, we only use the 11NA modes. The rest have
+ * been left for the sake of completeness. */
+enum wireless_mode {
+	JALDI_MODE_11A = 0,
+	JALDI_MODE_11G,
+	JALDI_MODE_11NA_HT20,
+	JALDI_MODE_11NG_HT20,
+	JALDI_MODE_11NA_HT40PLUS,
+	JALDI_MODE_11NA_HT40MINUS,
+	JALDI_MODE_11NG_HT40PLUS,
+	JALDI_MODE_11NG_HT40MINUS,
+	JALDI_MODE_MAX,
+};
+
+/* NB: This is a direct copy of ath9k_hw_caps to avoid modifying low-level 
+ * code as much as possible. 
+ *
+ * VEOL seems to be deprecated in ath9k; beacons should be generated in
+ * software instead. Nonetheless, we keep track of the hw capability here. */
+enum jaldi_hw_caps {
+	JALDI_HW_CAP_MIC_AESCCM                 = BIT(0),
+	JALDI_HW_CAP_MIC_CKIP                   = BIT(1),
+	JALDI_HW_CAP_MIC_TKIP                   = BIT(2),
+	JALDI_HW_CAP_CIPHER_AESCCM              = BIT(3),
+	JALDI_HW_CAP_CIPHER_CKIP                = BIT(4),
+	JALDI_HW_CAP_CIPHER_TKIP                = BIT(5),
+	JALDI_HW_CAP_VEOL                       = BIT(6), /* Virt end-of-list (hw-generated beacons) */
+	JALDI_HW_CAP_BSSIDMASK                  = BIT(7),
+	JALDI_HW_CAP_MCAST_KEYSEARCH            = BIT(8),
+	JALDI_HW_CAP_HT                         = BIT(9),
+	JALDI_HW_CAP_GTT                        = BIT(10), /* Global transmit timeout */
+	JALDI_HW_CAP_FASTCC                     = BIT(11), /* Fast channel change */
+	JALDI_HW_CAP_RFSILENT                   = BIT(12),
+	JALDI_HW_CAP_CST                        = BIT(13),
+	JALDI_HW_CAP_ENHANCEDPM                 = BIT(14),
+	JALDI_HW_CAP_AUTOSLEEP                  = BIT(15),
+	JALDI_HW_CAP_4KB_SPLITTRANS             = BIT(16),
+	JALDI_HW_CAP_EDMA			= BIT(17),
+	JALDI_HW_CAP_RAC_SUPPORTED		= BIT(18),
+	JALDI_HW_CAP_LDPC			= BIT(19),
+	JALDI_HW_CAP_FASTCLOCK			= BIT(20),
+	JALDI_HW_CAP_SGI_20			= BIT(21),
+};
+
+struct jaldi_hw_capabilities {
+	u32 hw_caps; /* JALDI_HW_CAP_* from jaldi_hw_caps */
+	DECLARE_BITMAP(wireless_modes, JALDI_MODE_MAX); /* JALDI_MODE_* */
+	u16 total_queues;
+	u16 keycache_size;
+	u16 low_5ghz_chan, high_5ghz_chan;
+	u16 low_2ghz_chan, high_2ghz_chan;
+	u16 rts_aggr_limit;
+	u8 tx_chainmask;
+	u8 rx_chainmask;
+	u16 tx_triglevel_max;
+	u16 reg_cap;
+	u8 num_gpio_pins;
+	u8 num_antcfg_2ghz;
+	u8 num_antcfg_5ghz;
+	u8 rx_hp_qdepth;
+	u8 rx_lp_qdepth;
+	u8 rx_status_len;
+	u8 tx_desc_len;
+	u8 txs_len;
 };
 
 struct jaldi_bus_ops {
@@ -210,7 +334,6 @@ struct jaldi_bus_ops {
  * @disable_write_buffer: Disable multiple register writes
  * @write_flush: Flush buffered register writes
  */
-
 struct jaldi_register_ops {
 	unsigned int (*read)(void *, u32 reg_offset);
 	void (*write)(void *, u32 val, u32 reg_offset);
@@ -220,7 +343,6 @@ struct jaldi_register_ops {
 };
 
 struct jaldi_hw_ops {
-	
 	bool (*macversion_supported)(u32 macversion);
 
 	/* PHY ops */
@@ -235,6 +357,29 @@ struct jaldi_hw {
 	struct jaldi_channel *curchan;
 	struct jaldi_bitrate *cur_rate;
 	enum jaldi_power_mode power_mode;
+	enum jaldi_opmode opmode;
+	struct jaldi_hw_capabilities caps;
+	u32 hw_flags; // generic hw flags
+
+	/* Support for killing rf ("airplane mode") */
+	u16 rfsilent;
+	u32 rfkill_gpio;
+	u32 rfkill_polarity;
+
+	/* Used to program the radio on non single-chip devices */
+	u32 *analogBank0Data;
+	u32 *analogBank1Data;
+	u32 *analogBank2Data;
+	u32 *analogBank3Data;
+	u32 *analogBank6Data;
+	u32 *analogBank6TPCData;
+	u32 *analogBank7Data;
+	u32 *addac5416_21;
+	u32 *bank6Temp;
+
+	u32 slottime; /* tx slot duration */
+	u32 ifstime; /* interframe spacing time */
+	u32 globaltxtimeout;
 
 	u32 intr_txqs;
 	u8 txchainmask;

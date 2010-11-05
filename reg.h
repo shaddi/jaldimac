@@ -1563,6 +1563,9 @@ enum {
 #define AR_MIC_QOS_CONTROL 0x8118
 #define AR_MIC_QOS_SELECT  0x811c
 
+/* We don't make use of the PCU_MISC field since none of these options are 
+ * relevant for JaldiMAC. ath9k sets these values during init_global_settings
+ * in hw.c, and they're included for future additions. */
 #define AR_PCU_MISC                0x8120
 #define AR_PCU_FORCE_BSSID_MATCH   0x00000001
 #define AR_PCU_MIC_NEW_LOC_ENA     0x00000004
