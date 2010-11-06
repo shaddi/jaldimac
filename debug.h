@@ -18,10 +18,11 @@ enum jaldi_debug_level {
 	JALDI_DEBUG,
 	JALDI_INFO,
 	JALDI_ALERT,
+	JALDI_WARN,
 	JALDI_FATAL,
-}
+};
 
 void jaldi_print(int level, const char *fmt, ...)
-	__attribute__ ((format (printf, 3, 4))); // FIXME: reflect adding in the level indicator
+	__attribute__ ((format (printf, 3, 4)));
 
 #endif /* JALDI_DEBUG_H */

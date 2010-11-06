@@ -663,7 +663,7 @@ struct eeprom_ops {
 	bool (*fill_eeprom)(struct jaldi_hw *hw);
 	int (*get_eeprom_ver)(struct jaldi_hw *hw);
 	int (*get_eeprom_rev)(struct jaldi_hw *hw);
-	u8 (*get_num_ant_config)(struct jaldi_hw *hw, enum ieee80211_band band);
+	u8 (*get_num_ant_config)(struct jaldi_hw *hw, enum jaldi_freq_band band);
 	u16 (*get_eeprom_antenna_cfg)(struct jaldi_hw *hw,
 				      struct jaldi_channel *chan);
 	void (*set_board_values)(struct jaldi_hw *hw, struct jaldi_channel *chan);
@@ -682,7 +682,7 @@ int16_t jaldi_hw_interpolate(u16 target, u16 srcLeft, u16 srcRight,
 			     int16_t targetRight);
 bool jaldi_hw_get_lower_upper_index(u8 target, u8 *pList, u16 listSize,
 				    u16 *indexL, u16 *indexR);
-bool jaldi_hw_nvram_read(struct ath_common *common, u32 off, u16 *data);
+bool jaldi_hw_nvram_read(struct jaldi_hw *hw, u32 off, u16 *data);
 void jaldi_hw_fill_vpd_table(u8 pwrMin, u8 pwrMax, u8 *pPwrList,
 			     u8 *pVpdList, u16 numIntercepts,
 			     u8 *pRetVpdList);

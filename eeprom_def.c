@@ -1391,11 +1391,11 @@ static void jaldi_hw_def_set_txpower(struct jaldi_hw *hw,
 }
 
 static u8 jaldi_hw_def_get_num_ant_config(struct jaldi_hw *hw,
-					  enum ieee80211_band freq_band)
+					  enum jaldi_freq_band freq_band)
 {
 	struct ar5416_eeprom_def *eep = &hw->eeprom.def;
 	struct modal_eep_header *pModal =
-		&(eep->modalHeader[ATH9K_HAL_FREQ_BAND_2GHZ == freq_band]);
+		&(eep->modalHeader[JALDI_HAL_FREQ_BAND_2GHZ == freq_band]);
 	struct base_eep_header *pBase = &eep->baseEepHeader;
 	u8 num_ant_config;
 

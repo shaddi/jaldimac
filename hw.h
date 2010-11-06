@@ -38,28 +38,28 @@
 #define JALDI_TIME_QUANTUM		10
 
 /* Register operation macros */
-#define REG_WRITE(_jh, _reg, _val) \
-	(_jh)->reg_ops->write((_jh), (_val), (_reg))
+#define REG_WRITE(_hw, _reg, _val) \
+	(_hw)->reg_ops->write((_hw), (_val), (_reg))
 
-#define REG_READ(_jh, _reg) \
-	(_jh)->reg_ops->read((_jh), (_reg))
+#define REG_READ(_hw, _reg) \
+	(_hw)->reg_ops->read((_hw), (_reg))
 
-#define ENABLE_REGWRITE_BUFFER(_ah)					\
+#define ENABLE_REGWRITE_BUFFER(_hw)					\
 	do {								\
-		if (AR_SREV_9271(_ah))					\
-			(_hw)->reg_ops->enable_write_buffer((_hw)); \ // TODO
+		if (AR_SREV_9271(_hw))					\
+			(_hw)->reg_ops->enable_write_buffer((_hw)); 	\
 	} while (0)
 
 #define DISABLE_REGWRITE_BUFFER(_hw)					\
 	do {								\
 		if (AR_SREV_9271(_hw))					\
-			(_hw)->reg_ops->disable_write_buffer((_hw)); \ // TODO
+			(_hw)->reg_ops->disable_write_buffer((_hw));	\
 	} while (0)
 
 #define REGWRITE_BUFFER_FLUSH(_hw)					\
 	do {								\
 		if (AR_SREV_9271(_hw))					\
-			(_hw)->reg_ops->write_flush((_hw)); \
+			(_hw)->reg_ops->write_flush((_hw)); 		\
 	} while (0)
 
 /* Shift and mask (and vice versa)
@@ -161,6 +161,7 @@ struct jaldi_hw_version {
 #define MIN_TX_FIFO_THRESHOLD   0x1 /* 64 byte increments */
 #define MAX_TX_FIFO_THRESHOLD   ((4096 / 64) - 1) /* 4KB */
 
+struct jaldi_softc; 
 
 enum jaldi_intr_type {
 	JALDI_INT_RX = 0x00000001,
@@ -372,6 +373,7 @@ struct jaldi_hw {
 	struct jaldi_channel *curchan;
 	struct jaldi_bitrate *cur_rate;
 	enum jaldi_power_mode power_mode;
+	enum jaldi_device_state dev_state;
 	enum jaldi_opmode opmode;
 	struct jaldi_hw_capabilities caps;
 	u32 hw_flags; // generic hw flags
