@@ -144,7 +144,7 @@ int jaldi_init_softc(u16 devid, struct jaldi_softc *sc, u16 subsyid, const struc
 	ret = jaldi_hw_init(hw);
 	if (ret) goto err_hw;
 
-	ret = jaldi_init_queues(sc);
+	ret = jaldi_init_queues(sc); // TODO
 	if (ret) goto err_queues;
 	
 err_queues:
@@ -155,7 +155,6 @@ err_hw:
 	sc->hw = NULL;
 	jaldi_print(JALDI_FATAL,"init_device failed, ret=%d\n",ret);
 	return ret;
-
 }
 
 int jaldi_init_device(u16 devid, struct jaldi_softc *sc, u16 subsyid, const struct jaldi_bus_ops *bus_ops)
@@ -189,3 +188,47 @@ error_init:
 	jaldi_print(JALDI_FATAL, "init_device failed, error %d.\n",error);
 	return error;
 }
+
+
+/*****************************/
+/*     De-Initialization     */
+/*****************************/
+
+static void jaldi_deinit_softc(struct jaldi_softc *sc)
+{
+	int i = 0;
+
+	for (i = 0; i < JALDI_NUM_TX_QUEUES; i++)
+		if (ATH_TXQ_SETUP(sc, i)) // TODO
+			jaldi_tx_cleanupq(sc, &sc->tx.txq[i]); // TODO
+
+	jaldi_hw_deinit(sc->sc_ah);
+
+	kfree(sc->hw);
+	sc->hw = NULL;
+}
+
+void jaldi_deinit_device(struct jaldi_softc *sc)
+{
+	int i = 0;
+
+	jaldi_ps_wakeup(sc); // TODO
+
+	jaldi_rx_cleanup(sc); // TODO 
+	jaldi_tx_cleanup(sc); // TODO
+	jaldi_deinit_softc(sc);
+}
+
+void ath_descdma_cleanup(struct ath_softc *sc,
+			 struct ath_descdma *dd,
+			 struct list_head *head)
+{
+	dma_free_coherent(sc->dev, dd->dd_desc_len, dd->dd_desc,
+			  dd->dd_desc_paddr);
+
+	INIT_LIST_HEAD(head);
+	kfree(dd->dd_bufptr);
+	memset(dd, 0, sizeof(*dd));
+}
+
+/************************/

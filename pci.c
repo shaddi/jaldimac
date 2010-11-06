@@ -92,7 +92,7 @@ static int jaldi_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto err_iomap;
 	}
 	
-	sc = NULL; // TODO: allocate softc
+	sc = kzalloc(sizeof(struct jaldi_softc), GFP_KERNEL); 
 
 	if (!sc) {
 		dev_err(&pdev->dev, "No memory for jaldi_softc\n");
@@ -116,7 +116,7 @@ static int jaldi_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	}
 
 	pci_read_config_word(pdev, PCI_SUBSYSTEM_ID, &subsysid);
-	ret = jaldi_init_device(sc); // TODO: Implement this. See ath9k/init.c:691.
+	ret = jaldi_init_device(id->device, sc, subsysid, &jaldi_pci_bus_ops); 
 
 	jaldi_print(0, "pci probe done\n");
 

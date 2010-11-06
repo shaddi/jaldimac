@@ -69,7 +69,7 @@ static int jaldi_ahb_probe(struct platform_device *pdev) {
 
 	irq = res->start;
 
-	sc = NULL; // TODO: allocate softc
+	sc = kzalloc(sizeof(struct jaldi_softc), GFP_KERNEL);
 
 	if (!sc) {
 		dev_err(&pdev->dev, "no memory for jaldi_softc\n");
@@ -91,15 +91,15 @@ static int jaldi_ahb_probe(struct platform_device *pdev) {
 		goto err_free_hw;
 	}
 
-	ret = jaldi_init_device(sc); // TODO: Implement this
+	ret = jaldi_init_device(AR5416_AR9100_DEVID, sc, 0x0, &jaldi_ahb_bus_ops); 
 	if (ret) {
 		dev_err(&pdev->dev, "failed to initialize device\n");
 		goto err_irq;
 	}
 
-	hw = sc->sc_hw; // pointer to jaldi_hw struct
-	ath9k_hw_name(hw, hw_name, sizeof(hw_name));
-	printk(KERN_INFO "jaldi: %s mem=0x%1x, irq=%d\n", hw_name, (unsigned long)mem, irq);
+	hw = sc->hw; // pointer to jaldi_hw struct
+	//jaldi_hw_name(hw, hw_name, sizeof(hw_name)); // TODO what the hell is this?
+	//printk(KERN_INFO "jaldi: %s mem=0x%1x, irq=%d\n", hw_name, (unsigned long)mem, irq);
 	return 0;
 
 err_irq:
@@ -118,7 +118,7 @@ static int jaldi_ahb_remove(struct platform_device *pdev) {
 	if (sc) {
 		void __iomem *mem = sc->mem;
 
-		jaldi_deinit_device(sc); // TODO: implement this
+		jaldi_deinit_device(sc); 
 		free_irq(sc->irq, sc);
 
 		iounmap(mem);
