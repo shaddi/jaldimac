@@ -14,7 +14,7 @@ static bool jaldi_ahb_eeprom_read(struct jaldi_softc *sc, u32 off, u16 *data)
 
 	pdata = (struct ath9k_platform_data *) pdev->dev.platform_data;
 	if (off >= (ARRAY_SIZE(pdata->eeprom_data))) {
-		jaldi_print(JALDI_DBG_FATAL,	
+		jaldi_print(JALDI_FATAL,	
 			  "%s: flash read failed, offset %08x "
 			  "is out of range\n",
 			  __func__, off);
@@ -26,7 +26,7 @@ static bool jaldi_ahb_eeprom_read(struct jaldi_softc *sc, u32 off, u16 *data)
 }
 
 static struct jaldi_bus_ops jaldi_ahb_bus_ops = {
-	.jaldi_bus_type = JALDI_AHB,
+	.type = JALDI_AHB,
 	.read_cachesize = jaldi_ahb_read_cachesize,
 	.eeprom_read = jaldi_ahb_eeprom_read,
 };
@@ -38,7 +38,7 @@ static int jaldi_ahb_probe(struct platform_device *pdev) {
 	int irq;
 	int ret = 0;
 	struct jaldi_hw *hw;
-	char hw_name[64];
+	//char hw_name[64];
 
 	if (!pdev->dev.platform_data) {
 		dev_err(&pdev->dev, "no platform data specified\n");

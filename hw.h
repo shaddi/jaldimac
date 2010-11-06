@@ -31,6 +31,8 @@
 #define AR_SUBVENDOR_ID_NEW_A	0x7065
 #define AR5416_MAGIC		0x19641014
 
+#define DEFAULT_CACHELINE	32
+
 #define JALDI_AMPDU_LIMIT_MAX		(64 * 1024 - 1) /* Not doing frame agg... */
 #define	JALDI_DEFAULT_NOISE_FLOOR	-95
 #define JALDI_RSSI_BAD			-128
@@ -335,7 +337,7 @@ struct jaldi_hw_capabilities {
 
 struct jaldi_bus_ops {
 	enum jaldi_bus_type type;
-	void (*read_cachesieze)(struct jaldi_softc *sc, int *cache_size);
+	void (*read_cachesize)(struct jaldi_softc *sc, int *cache_size);
 	bool (*eeprom_read)(struct jaldi_softc *sc, u32 off, u16 *data);
 };
 
@@ -419,4 +421,6 @@ struct jaldi_hw {
 	struct eeprom_ops eep_ops; // This is more or less copied from ath9k
 };
 
+bool jaldi_hw_intrpend(struct jaldi_hw *hw);
+bool jaldi_hw_wait(struct jaldi_hw *hw, u32 reg, u32 mask, u32 val, u32 timeout);
 #endif

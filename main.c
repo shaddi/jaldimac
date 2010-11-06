@@ -20,11 +20,10 @@ MODULE_AUTHOR("Shaddi Hasan");
 MODULE_LICENSE("Dual BSD/GPL");
 
 /* Maintains a priority queue of jaldi_packets to be sent */
-void jaldi_tx_enqueue(struct net_device *dev, struct jaldi_packet *pkt) {
+void jaldi_tx_enqueue(struct jaldi_softc *sc, struct jaldi_packet *pkt) {
 	unsigned long flags;
-	struct jaldi_softc *sc = netdev_priv(dev);
 	
-	spin_lock_irqsave(&sc->lock, flags);
+	spin_lock_irqsave(&sc->sc_netdevlock, flags);
 	if(sc->tx_queue == NULL || pkt->tx_time < sc->tx_queue->tx_time){
 		/* New packet goes in front */
 		pkt->next = sc->tx_queue;
@@ -37,28 +36,27 @@ void jaldi_tx_enqueue(struct net_device *dev, struct jaldi_packet *pkt) {
 		pkt->next = curr->next;
 		curr->next = pkt;
 	}
-	spin_unlock_irqrestore(&sc->lock, flags);
+	spin_unlock_irqrestore(&sc->sc_netdevlock, flags);
 }
 
 /* Returns the next jaldi_packet to be transmitted */
-struct jaldi_packet *jaldi_tx_dequeue(struct net_device *dev) {
-	struct jaldi_softc *sc = netdev_priv(dev);
+struct jaldi_packet *jaldi_tx_dequeue(struct jaldi_softc *sc) {
 	struct jaldi_packet *pkt;
 	unsigned long flags;
 	
-	spin_lock_irqsave(&sc->lock, flags);
+	spin_lock_irqsave(&sc->sc_netdevlock, flags);
 	pkt = sc->tx_queue;
 	if (pkt != NULL) sc->tx_queue = pkt->next;
-	spin_unlock_irqrestore(&sc->lock, flags);
+	spin_unlock_irqrestore(&sc->sc_netdevlock, flags);
 	return pkt;
 }
 
 irqreturn_t jaldi_isr(int irq, void *dev)
 {
 	struct jaldi_softc *sc = dev;
-	struct jaldi_hw *hw = sc->sc_jh;
+	struct jaldi_hw *hw = sc->hw;
 
-	if (!sc->hw_ready) { return IRQ_NONE; }
+	if (hw->dev_state != JALDI_HW_INITIALIZED) { return IRQ_NONE; }
 	
 	/* shared irq, not for us */
 	if(!jaldi_hw_intrpend(hw)) { return IRQ_NONE; }
@@ -113,12 +111,23 @@ int get_jaldi_tx_from_skb(struct sk_buff *skb) {
 	return 0; // TODO: decide on a packet format and implement this by reading protocol header field
 }
 
+int jaldi_pkt_type(struct jaldi_packet *pkt)
+{
+	// TODO : define format and check for potential control pkt
+	return JALDI_DATA;
+}
+
 // TODO: should return appropriate type
 int jaldi_get_qos_type_from_skb(struct sk_buff *skb) {
 	return JALDI_QOS_BULK; // TODO: make this random-ish for testing
 }
 
 
+int jaldi_hw_ctl(struct jaldi_softc *sc, struct jaldi_packet *pkt) {
+	// TODO: set the right control parameters
+
+	return 0;
+}
 
 /* This method basically does the following:
  * - assigns skb to hw buffer
@@ -126,7 +135,7 @@ int jaldi_get_qos_type_from_skb(struct sk_buff *skb) {
  * - allocates DMA buffer
  * - 
  */
-int jaldi_hw_tx(struct jaldi_packet *pkt)
+int jaldi_hw_tx(struct jaldi_softc *sc, struct jaldi_packet *pkt)
 {
 	struct jaldi_buf bf;
 	
@@ -138,17 +147,16 @@ int jaldi_hw_tx(struct jaldi_packet *pkt)
 
 	// setup buffer
 	memset(&bf, 0, sizeof(struct jaldi_buf));
-	bf->bf_state.bf_type |= BUF_HT
 
-	bf->bf_dma_context = dma_map_single(sc->dev, pkt->skb->data, 
+	bf.bf_dma_context = dma_map_single(sc->dev, pkt->skb->data, 
 						pkt->skb->len, DMA_TO_DEVICE);
 
-	if(unlikely(dma_mapping_error(sc->dev, bf->bf_dma_context))) {
-		jaldi_print(0, "dma_mapping_error during TX\n");
+	if(unlikely(dma_mapping_error(sc->dev, bf.bf_dma_context))) {
+		jaldi_print(JALDI_WARN, "dma_mapping_error during TX\n");
 		return -ENOMEM;
 	}
 
-	bf->bf_buf_addr = bf->bf_dma_context;
+	bf.bf_buf_addr = bf.bf_dma_context;
 
 	
 
@@ -166,7 +174,7 @@ int jaldi_hw_tx(struct jaldi_packet *pkt)
  handler should drain the low level queues and initiate transmission over the air.
  */
 
-	return;
+	return 0;
 }
 
 //void jaldi_timer_tx(
@@ -215,21 +223,27 @@ int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 	tx_timer.data = (unsigned long)*pkt;
 	tx_timer.expires = pkt->tx_time;*/
 
-	/* check for skb type: control packet or standard */
-	if( jaldi_skb_type(skb) == JALDI_CONTROL ) { // should check skb->cb for bit, or header
-		jaldi_hw_ctl(pkt);
+	/* check for type: control packet or standard */
+	if( jaldi_pkt_type(pkt) == JALDI_CONTROL ) { // should check header
+		jaldi_hw_ctl(sc, pkt);
 	} else {
-		jaldi_hw_tx(pkt);
+		jaldi_hw_tx(sc, pkt);
 	}
 	
 	return 0;
 
 }
 
-/* Enable rx (from snull) */
+/* Enable rx interrupts */
 static void jaldi_rx_ints(struct jaldi_softc *sc, int enable)
 {
 	sc->rx_int_enabled = enable;
+
+}
+/* Enable tx interrupts */
+static void jaldi_tx_ints(struct jaldi_softc *sc, int enable)
+{
+	sc->tx_int_enabled = enable;
 }
 
 /* Set up a device's packet pool. (from snull) */
@@ -256,10 +270,12 @@ static const struct net_device_ops jaldi_netdev_ops =
 //	.ndo_get_stats			= jaldi_stats,
 };
 
+/* TODO move to init.c, or call the init there */
 void jaldi_init(struct net_device *dev)
 {
-	printk(KERN_DEBUG "jaldi: jaldi_init start");
 	struct jaldi_softc *sc;
+
+	jaldi_print(JALDI_INFO, "jaldi_init start\n");
 
 	ether_setup(dev);
 
@@ -268,27 +284,27 @@ void jaldi_init(struct net_device *dev)
 
 	memset(sc,0,sizeof(struct jaldi_softc));
 	
-	spin_lock_init(&sc->lock);
+	spin_lock_init(&sc->sc_netdevlock);
 
 	sc->net_dev = dev;
 	
 	if(!jaldi_init_interrupts(sc)) {
-		jaldi_print(0, "error initializing interrupt handlers\n");
-		return -1;
+		jaldi_print(JALDI_FATAL, "error initializing interrupt handlers\n");
+		return; 
 	}
 
 	jaldi_rx_ints(sc,1);
 	jaldi_tx_ints(sc,1);
 
 	jaldi_setup_pool(dev);
-	printk(KERN_DEBUG "jaldi: jaldi_init end");
+	jaldi_print(JALDI_INFO, "jaldi_init end\n");
 }
 	
 
 int jaldi_init_module(void)
 {
-	int result, i, ret = -ENOMEM;
-	printk(KERN_DEBUG "jaldi: creating netdev...");
+	int result, ret = -ENOMEM;
+	jaldi_print(JALDI_DEBUG, "creating netdev...\n");
 	jaldi_dev = alloc_netdev(sizeof(struct jaldi_softc), "jaldi%d", jaldi_init);
 	
 	if (jaldi_dev == NULL) {
@@ -296,25 +312,21 @@ int jaldi_init_module(void)
 		goto out;
 	}	
 	
-	printk(KERN_DEBUG "jaldi: netdev allocated.");
+	jaldi_print(JALDI_DEBUG, "netdev allocated.\n");
 		
 	ret = -ENODEV;
-	if ((result = register_netdev(jaldi_dev))) 
-	{
-		printk(KERN_DEBUG "jaldi: error %i registering device \"%s\"\n", result, jaldi_dev->name);
-	}
+	result = register_netdev(jaldi_dev);
+	if (result) 
+		jaldi_print(JALDI_DEBUG, "error %i registering device \"%s\"\n", result, jaldi_dev->name);
 	else
-	{
 		ret = 0;
-	}
 		
-	printk(KERN_DEBUG "jaldi: netdev registered.");	
+	jaldi_print(JALDI_DEBUG, "netdev registered.\n");	
 	
 out:
-		if (ret)
-			jaldi_cleanup();
-		return ret;
-
+	if (ret)
+		jaldi_cleanup();
+	return ret;
 }
 
 module_init(jaldi_init_module);

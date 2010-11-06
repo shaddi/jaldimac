@@ -49,6 +49,13 @@
 #define SC_OP_BT_PRIORITY_DETECTED   BIT(12)
 #define SC_OP_BT_SCAN                BIT(13)
 
+/***********/
+/* RX / TX */
+/***********/
+#define JALDI_MAX_ANTENNA	3
+#define JALDI_NUM_RXBUF		512
+#define JALDI_NUM_TXBUF		512
+
 
 struct jaldi_wiphy;
 struct jaldi_rate_table;
@@ -59,10 +66,21 @@ enum qos_type {
 	JALDI_QOS_UNDEFINED,
 };
 
+enum jaldi_freq_band {
+	JALDI_2GHZ = 0,
+	JALDI_5GHZ,
+};
+
+enum jaldi_packet_type {
+	JALDI_CONTROL = 0,
+	JALDI_DATA,
+};
+
 struct jaldi_packet {
 	struct jaldi_packet *next;
 	struct net_device *dev;
 	struct sk_buff *skb;
+	int jaldi_packet_type;
 	int datalen;
 	char *data;
 	s64 tx_time; /* the time at which this packet should be sent */
@@ -86,9 +104,20 @@ struct jaldi_buf {
 	u16 bf_flags;
 };
 
+/**********/
+/*  MAC   */
+/**********/
+enum jaldi_tx_queue_type {
+	JALDI_WME_AC_BK = 0,	// background (lowest priority)
+	JALDI_WME_AC_BE,	// best effort
+	JALDI_WME_AC_VI,	// video
+	JALDI_WME_AC_VO,	// voice (highest priority)
+	JALDI_WME_UNSP
+};
+
 struct jaldi_tx {
 	u16 seq_no;
-	int hwq_map[ATH9K_WME_AC_VO+1]; // the four ath9k wma hw queues
+	int hwq_map[JALDI_WME_AC_VO+1]; // the five jaldi hw queues
 	spinlock_t txbuflock;
 	struct list_head txbuf;
 };
@@ -117,10 +146,10 @@ struct jaldi_softc {
 	struct net_device_stats stats;
 	int status;
 	int rx_int_enabled;
-	int tx_enabled;
+	int tx_int_enabled;
 	struct jaldi_packet *tx_queue; /* packets scheduled for sending */
 	struct sk_buff *skb;
-	spinlock_t lock;
+	spinlock_t sc_netdevlock;
 
 	u8 macaddr[ETH_ALEN];
 
@@ -131,17 +160,10 @@ struct jaldi_softc {
 	// none at softc level yet...
 };
 
-struct jaldi_wiphy {
-	int foo;
-};
-
-struct jaldi_rate_table {
-	int bar;
-};
-
-struct jaldi_softc jaldi_init_softc(u16 devid, struct jaldi_softc *sc);
-int jaldi_init_device(struct jaldi_softc *sc); // TODO: implement
-void jaldi_deinit_device(struct jaldi_softc *sc); // TODO: implement
+struct jaldi_softc jaldi_init_softc(u16 devid, struct jaldi_softc *sc, u16 subsyid, const struct jaldi_bus_ops *bus_ops);
+int jaldi_init_device(u16 devid, struct jaldi_softc *sc, u16 subsyid, const struct jaldi_bus_ops *bus_ops);
+void jaldi_deinit_device(struct jaldi_softc *sc);
+void jaldi_deinit_softc(struct jaldi_softc *sc);
 int jaldi_init_interrupts(struct jaldi_softc *sc); 
 
 irqreturn_t jaldi_isr(int irq, void *dev);
