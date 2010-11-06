@@ -153,6 +153,15 @@ struct jaldi_hw_version {
 #define IS_CHAN_HT40(_c) (((_c)->chanmode == CHANNEL_HT40PLUS) || \
 			  ((_c)->chanmode == CHANNEL_HT40MINUS))
 
+/* tx fifo thresholds
+ * Single stream device AR9285 and AR9271 require 2 KB
+ * to work around a hardware issue, all other devices
+ * have can use the max 4 KB limit.
+ */
+#define MIN_TX_FIFO_THRESHOLD   0x1 /* 64 byte increments */
+#define MAX_TX_FIFO_THRESHOLD   ((4096 / 64) - 1) /* 4KB */
+
+
 enum jaldi_intr_type {
 	JALDI_INT_RX = 0x00000001,
 	JALDI_INT_RXDESC = 0x00000002,
@@ -246,9 +255,15 @@ struct jaldi_bitrate {
 	u16 hw_value;
 };
 
+enum jaldi_device_state {
+	JALDI_HW_UNAVAILABLE,
+	JALDI_HW_INITIALIZED,
+};
+
 enum jaldi_bus_type {
 	JALDI_PCI,
 	JALDI_AHB,
+	JALDI_USB,
 };
 
 /* For hardware jaldimac supports, we only use the 11NA modes. The rest have
@@ -386,6 +401,14 @@ struct jaldi_hw {
 	u8 rxchainmask;
 
 	bool chip_fullsleep;
+
+	/* hw config (takes place of ath9k_ops_config) */
+	bool rx_intr_mitigation;
+	bool tx_intr_mitigation;
+	bool is_pciexpress;
+	int serialize_regmode;
+	u8 ht_enable;
+	u8 max_txtrig_level; /* tx fifo */
 
 	/* functions to control hw */
 	struct jaldi_hw_ops ops;

@@ -115,13 +115,77 @@ static const struct jaldi_register_ops jaldi_reg_ops = {
 	.write = jaldi_iowrite32,
 };
 
-int jaldi_init_device(u16 devid, struct jaldi_softc *sc, u16 subsyid, const struct ath_bus_ops *bus_ops)
-{
-	
-}
-
 int jaldi_tx_init(struct jaldi_softc *sc, int nbufs)
 {
 	int error = 0;
 	
 	spin_lock_init(&sc->txbufferlock);
+
+
+}
+
+int jaldi_init_softc(u16 devid, struct jaldi_softc *sc, u16 subsyid, const struct jaldi_bus_ops *bus_ops)
+{
+	struct jaldi_hw *hw = NULL;
+	int ret = 0, i;
+
+	hw = kzalloc(sizeof(struct jaldi_hw), GFP_KERNEL);
+	if (!hw) return -ENOMEM;
+
+	hw->hw_version.devid = devid;
+	hw->hw_version.subsysid = subsysid;
+	sc->hw = hw;
+
+	spin_lock_init(&sc->sc_resetlock);
+	spin_lock_init(&sc->sc_netdevlock);
+	/* init tasklets and other locks here */
+
+	/* ath9k reads cache line size here... may be relevant */
+	ret = jaldi_hw_init(hw);
+	if (ret) goto err_hw;
+
+	ret = jaldi_init_queues(sc);
+	if (ret) goto err_queues;
+	
+err_queues:
+	jaldi_hw_deinit(hw);
+err_hw:
+	/* need to kill any tasklets we started */
+	kfree(hw);
+	sc->hw = NULL;
+	jaldi_print(JALDI_FATAL,"init_device failed, ret=%d\n",ret);
+	return ret;
+
+}
+
+int jaldi_init_device(u16 devid, struct jaldi_softc *sc, u16 subsyid, const struct jaldi_bus_ops *bus_ops)
+{
+	jaldi_hw *hw;
+	int error;
+
+	error = jaldi_init_softc(devid, sc, subsysid, bus_ops);
+	if (error != 0)
+		goto error_init;
+
+	hw = sc->hw;
+
+	/* Setup TX DMA */
+	error = jaldi_tx_init(sc, JALDI_NUM_TXBUF); // TODO
+	if (error) { goto error_tx; }
+
+	/* Setup RX DMA */
+	error = jaldi_rx_init(sc, JALDI_NUM_RXBUF); // TODO
+	if (error) { goto error_rx; }
+
+	/* initialize workers here if needed */
+
+	return 0;
+
+error_rx:
+	jaldi_tx_cleanup(sc);
+error_tx:
+	jaldi_deinit_softc(sc);
+error_init:
+	jaldi_print(JALDI_FATAL, "init_device failed, error %d.\n",error);
+	return error;
+}

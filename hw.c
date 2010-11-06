@@ -254,6 +254,57 @@ void jaldi_hw_update_async_fifo(struct jaldi_hw *hw)
 	}
 }
 
+static bool jaldi_hw_macversion_supported(jaldi_hw *hw) 
+{
+	u32 macversion = hw->hw_version.macVersion;
+
+	switch(macversion) {
+		case AR_SREV_VERSION_5416_PCI:
+		case AR_SREV_VERSION_5416_PCIE:
+		case AR_SREV_VERSION_9160:
+		case AR_SREV_VERSION_9100:
+		case AR_SREV_VERSION_9280:
+		case AR_SREV_VERSION_9285:
+		case AR_SREV_VERSION_9287:
+		case AR_SREV_VERSION_9271:
+			return true;
+		default:
+			break;
+	}
+	return false;
+}
+
+
+/************
+ * ar5008 phy
+ ************/
+static void jaldi_hw_init_baseband(struct jaldi_hw *hw,
+			      struct jaldi_channel *chan)
+{
+	u32 synthDelay;
+
+	synthDelay = REG_READ(hw, AR_PHY_RX_DELAY) & AR_PHY_RX_DELAY_DELAY;
+	if (IS_CHAN_B(chan))
+		synthDelay = (4 * synthDelay) / 22;
+	else
+		synthDelay /= 10;
+
+	/* Enables the phy */
+	REG_WRITE(hw, AR_PHY_ACTIVE, AR_PHY_ACTIVE_EN);
+
+	udelay(synthDelay + BASE_ACTIVATE_DELAY);
+}
+
+static void jaldirestore_chainmask(struct jaldi_hw *hw)
+{
+	int rx_chainmask = hw->rxchainmask;
+
+	if ((rx_chainmask == 0x5) || (rx_chainmask == 0x3)) {
+		REG_WRITE(hw, AR_PHY_RX_CHAINMASK, rx_chainmask);
+		REG_WRITE(hw, AR_PHY_CAL_CHAINMASK, rx_chainmask);
+	}
+}
+
 /***********
  * Power Management
  ***********/
@@ -443,6 +494,16 @@ static bool jaldi_hw_chip_test(struct jaldi_hw *hw)
 static void jaldi_hw_init_config(struct jaldi_hw *hw)
 { 
 	// TODO: right now, does nothing. set hw config here as needed.
+}
+
+void jaldi_hw_deinit(struct jaldi_hw *hw) 
+{
+	if (hw->dev_state < JALDI_HW_INITIALIZED) goto free_hw;
+
+	jaldi_hw_setpower(hw, JALDI_PM_FULL_SLEEP);
+
+free_hw:
+	/* nothing */
 }
 
 static void jaldi_hw_setslottime(struct jaldi_hw *hw, u32 us)
@@ -850,67 +911,66 @@ static bool jaldi_hw_reset(struct jaldi_hw *hw, struct jaldi_channel *chan,
 	REG_WRITE(hw, AR_STA_ID1,
 		  REG_READ(hw, AR_STA_ID1) | AR_STA_ID1_PRESERVE_SEQNUM);
 
-	jaldi_hw_set_dma(ah);
+	jaldi_hw_set_dma(hw);
 
 	REG_WRITE(hw, AR_OBS, 8);
 
-	if (ah->config.rx_intr_mitigation) {
-		REG_RMW_FIELD(ah, AR_RIMT, AR_RIMT_LAST, 500);
-		REG_RMW_FIELD(ah, AR_RIMT, AR_RIMT_FIRST, 2000);
+	if (hw->rx_intr_mitigation) {
+		REG_RMW_FIELD(hw, AR_RIMT, AR_RIMT_LAST, 500);
+		REG_RMW_FIELD(hw, AR_RIMT, AR_RIMT_FIRST, 2000);
 	}
 
-	if (ah->config.tx_intr_mitigation) {
-		REG_RMW_FIELD(ah, AR_TIMT, AR_TIMT_LAST, 300);
-		REG_RMW_FIELD(ah, AR_TIMT, AR_TIMT_FIRST, 750);
+	if (hw->tx_intr_mitigation) {
+		REG_RMW_FIELD(hw, AR_TIMT, AR_TIMT_LAST, 300);
+		REG_RMW_FIELD(hw, AR_TIMT, AR_TIMT_FIRST, 750);
 	}
 
-	ath9k_hw_init_bb(ah, chan);
+	jaldi_hw_init_baseband(hw, chan);
 
-	if (!ath9k_hw_init_cal(ah, chan))
-		return -EIO;
+	/* TODO: calibration code */
+//	if (!ath9k_hw_init_cal(ah, chan))
+//		return -EIO;
 
-	ENABLE_REGWRITE_BUFFER(ah);
+	ENABLE_REGWRITE_BUFFER(hw);
 
-	ath9k_hw_restore_chainmask(ah);
-	REG_WRITE(ah, AR_CFG_LED, saveLedState | AR_CFG_SCLK_32KHZ);
+	jaldi_hw_restore_chainmask(ah);
 
-	REGWRITE_BUFFER_FLUSH(ah);
-	DISABLE_REGWRITE_BUFFER(ah);
+	REGWRITE_BUFFER_FLUSH(hw);
+	DISABLE_REGWRITE_BUFFER(hw);
 
 	/*
 	 * For big endian systems turn on swapping for descriptors
 	 */
-	if (AR_SREV_9100(ah)) {
+	if (AR_SREV_9100(hw)) {
 		u32 mask;
-		mask = REG_READ(ah, AR_CFG);
+		mask = REG_READ(hw, AR_CFG);
 		if (mask & (AR_CFG_SWRB | AR_CFG_SWTB | AR_CFG_SWRG)) {
-			ath_print(common, ATH_DBG_RESET,
+			jaldi_print(JALDI_DEBUG,
 				"CFG Byte Swap Set 0x%x\n", mask);
 		} else {
 			mask =
 				INIT_CONFIG_STATUS | AR_CFG_SWRB | AR_CFG_SWTB;
-			REG_WRITE(ah, AR_CFG, mask);
-			ath_print(common, ATH_DBG_RESET,
-				"Setting CFG 0x%x\n", REG_READ(ah, AR_CFG));
+			REG_WRITE(hw, AR_CFG, mask);
+			jaldi_print(JALDI_DEBUG,
+				"Setting CFG 0x%x\n", REG_READ(hw, AR_CFG));
 		}
 	} else {
-		if (common->bus_ops->ath_bus_type == ATH_USB) {
+		if (common->bus_ops->jaldi_bus_type == JALDI_USB) {
 			/* Configure AR9271 target WLAN */
-			if (AR_SREV_9271(ah))
-				REG_WRITE(ah, AR_CFG, AR_CFG_SWRB | AR_CFG_SWTB);
+			if (AR_SREV_9271(hw))
+				REG_WRITE(hw, AR_CFG, AR_CFG_SWRB | AR_CFG_SWTB);
 			else
-				REG_WRITE(ah, AR_CFG, AR_CFG_SWTD | AR_CFG_SWRD);
+				REG_WRITE(hw, AR_CFG, AR_CFG_SWTD | AR_CFG_SWRD);
 		}
 #ifdef __BIG_ENDIAN
                 else
-			REG_WRITE(ah, AR_CFG, AR_CFG_SWTD | AR_CFG_SWRD);
+			REG_WRITE(hw, AR_CFG, AR_CFG_SWTD | AR_CFG_SWRD);
 #endif
 	}
 
-	if (AR_SREV_9300_20_OR_LATER(ah)) {
-		ath9k_hw_loadnf(ah, curchan);
-		ath9k_hw_start_nfcal(ah);
-		ar9003_hw_bb_watchdog_config(ah);
+	if (AR_SREV_9300_20_OR_LATER(hw)) {
+	//	ath9k_hw_loadnf(hw, curchan); // TODO
+	//	ath9k_hw_start_nfcal(hw); // TODO
 	}
 
 	return 0;
@@ -1092,11 +1152,12 @@ static int jaldi_hw_post_init(struct jaldi_hw *hw){
 
 	if (!jaldi_hw_chip_test(hw)) { return -ENODEV; }
 
-	
+
+}
 
 static void jaldi_hw_attach_ops(struct jaldi_hw *hw)
 {
-	struct 	
+	/* todo... currently we don't do much w/ hw ops */ 	
 }
 
 static int __jaldi_hw_init(struct jaldi_hw *hw)
@@ -1108,7 +1169,7 @@ static int __jaldi_hw_init(struct jaldi_hw *hw)
 		jaldi_print(0,"This device is not supported by JaldiMAC.\n");
 		// goal here is to only allow ar9280 (ubnt ns5m and similar) to work
 
-		return -EIO;
+		return -EOPNOTSUPP;
 	}
 
 	if(!jaldi_hw_set_reset_reg(hw, JALDI_RESET_POWER_ON)) {
@@ -1117,16 +1178,85 @@ static int __jaldi_hw_init(struct jaldi_hw *hw)
 	}
 
 
-	ath9k_hw_init_defaults(ah);
-	ath9k_hw_init_config(ah);
-	jaldi_hw_attach_ops(ah);
+	jaldi_hw_init_defaults(hw);
+	jaldi_hw_init_config(hw);
+	jaldi_hw_attach_ops(hw);
 
 	if (!jaldi_hw_setpower(ah, JALDI_PM_AWAKE)) {
 		jaldi_print(JALDI_FATAL, "Couldn't wakeup chip\n");
 		return -EIO;
 	}
 
+	if (AR_SREV_9271(hw) || AR_SREV_9100(hw))
+		hw->is_pciexpress = false;
 
+	if (hw->serialize_regmode == SER_REG_MODE_AUTO) {
+		if (hw->hw_version.macVersion == AR_SREV_VERSION_5416_PCI ||
+		    (AR_SREV_9280(hw) && !hw->is_pciexpress)) {
+			hw->serialize_regmode =
+				SER_REG_MODE_ON;
+		} else {
+			hw->serialize_regmode =
+				SER_REG_MODE_OFF;
+		}
+	}
+
+	jaldi_print(JALDI_RESET, "serialize_regmode is %d\n",
+		hw->serialize_regmode);
+
+	if (AR_SREV_9285(hw) || AR_SREV_9271(hw))
+		hw->max_txtrig_level = MAX_TX_FIFO_THRESHOLD >> 1; /* 2KB bug, see hw.h */
+	else
+		hw->max_txtrig_level = MAX_TX_FIFO_THRESHOLD;
+
+	if (!jaldi_hw_macversion_supported(hw)) {
+		jaldi_print(JALDI_FATAL,
+			  "Mac Chip Rev 0x%02x.%x is not supported by "
+			  "this driver\n", hw->hw_version.macVersion,
+			  hw->hw_version.macRev);
+		return -EOPNOTSUPP;
+	}
+
+	hw->hw_version.phyRev = REG_READ(hw, AR_PHY_CHIP_ID);
+
+	hw->dev_state = JALDI_HW_INITIALIZED;
 }
 
+/* hw init container. checks device is supported, then runs private init */
+int jaldi_hw_init(struct jaldi_hw *hw)
+{
+	int ret;
 
+	/* These are all the AR5008/AR9001/AR9002 hardware family of chipsets */
+	switch (hw->hw_version.devid) {
+	case AR5416_DEVID_PCI:
+	case AR5416_DEVID_PCIE:
+	case AR5416_AR9100_DEVID:
+	case AR9160_DEVID_PCI:
+	case AR9280_DEVID_PCI:
+	case AR9280_DEVID_PCIE:
+	case AR9285_DEVID_PCIE:
+	case AR9287_DEVID_PCI:
+	case AR9287_DEVID_PCIE:
+	case AR2427_DEVID_PCIE:
+	case AR9300_DEVID_PCIE:
+		break;
+	default:
+		if (common->bus_ops->jaldi_bus_type == ATH_USB)
+			break;
+		jaldi_print(JALDI_FATAL,
+			  "Hardware device ID 0x%04x not supported\n",
+			  hw->hw_version.devid);
+		return -EOPNOTSUPP;
+	}
+
+	ret = __jaldi_hw_init(hw);
+	if (ret) {
+		jaldi_print(JALDI_FATAL,
+			  "Unable to initialize hardware; "
+			  "initialization status: %d\n", ret);
+		return ret;
+	}
+
+	return 0;
+}
