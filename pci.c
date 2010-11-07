@@ -31,8 +31,7 @@ static void jaldi_pci_read_cachesize(struct jaldi_softc *sc, int *csz) {
 
 static bool jaldi_pci_eeprom_read(struct jaldi_softc *sc, u8 off, u16 *data)
 {
-	struct jaldi_hw *hw = (struct jaldi_hw *) sc->hw;
-	
+	struct jaldi_hw *hw = sc->hw;
 	hw->reg_ops->read(hw, AR5416_EEPROM_OFFSET + (off << AR5416_EEPROM_S));
 
 	if (!jaldi_hw_wait(hw,
@@ -152,7 +151,7 @@ static int jaldi_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	pci_read_config_word(pdev, PCI_SUBSYSTEM_ID, &subsysid);
 	ret = jaldi_init_device(id->device, sc, subsysid, &jaldi_pci_bus_ops); 
-	if (!ret) {
+	if (!ret) 
 		goto err_init;
 
 	jaldi_print(JALDI_INFO, "pci probe done\n");
@@ -161,7 +160,7 @@ static int jaldi_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 err_init:
 	free_irq(sc->irq, sc);
-err_irq: // should free softc once this is implemented
+err_irq:
 	kfree(sc);
 err_alloc_hw:
 	pci_iounmap(pdev, mem);
@@ -174,8 +173,8 @@ err_dma:
 	return ret;
 }
 
-static void jaldi_pci_remove(struct pci_dev *pdev) {
-	
+static void jaldi_pci_remove(struct pci_dev *pdev)
+{
 	struct jaldi_softc *sc; 
 	void __iomem *mem;
 
@@ -189,6 +188,8 @@ static void jaldi_pci_remove(struct pci_dev *pdev) {
 	pci_disable_device(pdev);
 	pci_release_region(pdev, 0);
 }
+
+MODULE_DEVICE_TABLE(pci, jaldi_pci_id_table);
 
 static struct pci_driver jaldi_pci_driver = {
 	.name       = "jaldi",

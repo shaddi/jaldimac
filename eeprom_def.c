@@ -14,8 +14,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "hw.h"
-#include "ar9002_phy.h"
+#include "jaldi.h"
+//#include "ar9002_phy.h"
 
 static void jaldi_get_txgain_index(struct jaldi_hw *hw,
 		struct jaldi_channel *chan,
@@ -27,7 +27,7 @@ static void jaldi_get_txgain_index(struct jaldi_hw *hw,
 	bool match;
 	struct chan_centers centers;
 
-	jaldi_hw_get_channel_centers(hw, chan, &centers);
+	jaldi_hw_get_channel_centers(chan, &centers);
 
 	for (numPiers = 0; numPiers < availPiers; numPiers++)
 		if (calChans[numPiers] == AR5416_BCHAN_UNUSED)
@@ -555,7 +555,7 @@ static void jaldi_hw_def_set_addac(struct jaldi_hw *hw,
 		u16 resetFreqBin, freqBin, freqCount = 0;
 		struct chan_centers centers;
 
-		jaldi_hw_get_channel_centers(hw, chan, &centers);
+		jaldi_hw_get_channel_centers(chan, &centers);
 
 		resetFreqBin = FREQ2FBIN(centers.synth_center,
 					 IS_CHAN_2GHZ(chan));
@@ -616,7 +616,7 @@ static void jaldi_hw_get_def_gain_boundaries_pdadcs(struct jaldi_hw *hw,
 	struct chan_centers centers;
 
 	memset(&minPwrT4, 0, AR9287_NUM_PD_GAINS);
-	jaldi_hw_get_channel_centers(hw, chan, &centers);
+	jaldi_hw_get_channel_centers(chan, &centers);
 
 	for (numPiers = 0; numPiers < availPiers; numPiers++) {
 		if (bChans[numPiers] == AR5416_BCHAN_UNUSED)
@@ -1033,7 +1033,7 @@ static void jaldi_hw_set_def_power_per_rate_table(struct jaldi_hw *hw,
 
 	tx_chainmask = hw->txchainmask;
 
-	jaldi_hw_get_channel_centers(hw, chan, &centers);
+	jaldi_hw_get_channel_centers(chan, &centers);
 
 	twiceLargestAntenna = max(
 		pEepData->modalHeader

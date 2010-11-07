@@ -28,13 +28,13 @@
 #define REG_WRITE_RF_ARRAY(iniarray, regData, regWr) do {               \
 		int r;							\
 		for (r = 0; r < ((iniarray)->ia_rows); r++) {		\
-			REG_WRITE(ah, INI_RA((iniarray), r, 0), (regData)[r]); \
+			REG_WRITE(hw, INI_RA((iniarray), r, 0), (regData)[r]); \
 			DO_DELAY(regWr);				\
 		}							\
 	} while (0)
 
-#define ATH9K_IS_MIC_ENABLED(ah)					\
-	((ah)->sta_id1_defaults & AR_STA_ID1_CRPT_MIC_ENABLE)
+#define JALDI_IS_MIC_ENABLED(hw)					\
+	((hw)->sta_id1_defaults & AR_STA_ID1_CRPT_MIC_ENABLE)
 
 #define ANTSWAP_AB 0x0001
 #define REDUCE_CHAIN_0 0x00000050

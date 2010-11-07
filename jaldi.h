@@ -160,10 +160,9 @@ struct jaldi_softc {
 	// none at softc level yet...
 };
 
-struct jaldi_softc jaldi_init_softc(u16 devid, struct jaldi_softc *sc, u16 subsyid, const struct jaldi_bus_ops *bus_ops);
-int jaldi_init_device(u16 devid, struct jaldi_softc *sc, u16 subsyid, const struct jaldi_bus_ops *bus_ops);
+int jaldi_init_softc(u16 devid, struct jaldi_softc *sc, u16 subsysid, const struct jaldi_bus_ops *bus_ops);
+int jaldi_init_device(u16 devid, struct jaldi_softc *sc, u16 subsysid, const struct jaldi_bus_ops *bus_ops);
 void jaldi_deinit_device(struct jaldi_softc *sc);
-void jaldi_deinit_softc(struct jaldi_softc *sc);
 int jaldi_init_interrupts(struct jaldi_softc *sc); 
 
 irqreturn_t jaldi_isr(int irq, void *dev);

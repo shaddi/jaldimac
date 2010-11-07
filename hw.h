@@ -11,6 +11,7 @@
 
 #include "reg.h"
 #include "eeprom.h"
+#include "phy.h"
 
 #define ATHEROS_VENDOR_ID	0x168c
 
@@ -38,6 +39,13 @@
 #define JALDI_RSSI_BAD			-128
 #define JALDI_WAIT_TIMEOUT		100000 /* (us) */
 #define JALDI_TIME_QUANTUM		10
+#define POWER_UP_TIME			10000
+
+#define JALDI_CLOCK_RATE_CCK		22
+#define JALDI_CLOCK_RATE_5GHZ_OFDM	40
+#define JALDI_CLOCK_RATE_2GHZ_OFDM	44
+#define JALDI_CLOCK_FAST_RATE_5GHZ_OFDM 44
+
 
 /* Register operation macros */
 #define REG_WRITE(_hw, _reg, _val) \
@@ -103,22 +111,6 @@
 /* End register r/w macros */
 
 
-// closely based upon ath9k_hw_version (a9k/hw.h)
-struct jaldi_hw_version {
-	u32 magic;
-	u32 devid;
-	u16 subvendorid;
-	u32 macVersion;
-	u16 macRev;
-	u16 phyRev;
-	u16 analog5GhzRev;
-	u16 analog2GhzRev; // don't think this is needed for us...
-	u16 subsysid;
-};
-
-#define HT40_CHANNEL_CENTER_SHIFT	10
-// channel mode flags -- from ath9k, many not needed here
-#define CHANNEL_CW_INT    0x00002
 #define CHANNEL_CCK       0x00020
 #define CHANNEL_OFDM      0x00040
 #define CHANNEL_2GHZ      0x00080
@@ -150,10 +142,16 @@ struct jaldi_hw_version {
 	 CHANNEL_HT40MINUS)
 
 /* Macros for checking chanmode */
+#define IS_CHAN_5GHZ(_c) (((_c)->channelFlags & CHANNEL_5GHZ) != 0)
+#define IS_CHAN_2GHZ(_c) (((_c)->channelFlags & CHANNEL_2GHZ) != 0)
 #define IS_CHAN_B(_c) ((_c)->chanmode == CHANNEL_B)
 #define IS_CHAN_HT20(_c) (((_c)->chanmode == CHANNEL_HT20)) 
 #define IS_CHAN_HT40(_c) (((_c)->chanmode == CHANNEL_HT40PLUS) || \
 			  ((_c)->chanmode == CHANNEL_HT40MINUS))
+
+
+#define AR_BASE_FREQ_2GHZ   	2300
+#define AR_BASE_FREQ_5GHZ   	4900
 
 /* tx fifo thresholds
  * Single stream device AR9285 and AR9271 require 2 KB
@@ -163,7 +161,27 @@ struct jaldi_hw_version {
 #define MIN_TX_FIFO_THRESHOLD   0x1 /* 64 byte increments */
 #define MAX_TX_FIFO_THRESHOLD   ((4096 / 64) - 1) /* 4KB */
 
+/* calibration */
+#define NUM_NF_READINGS		6
+
 struct jaldi_softc; 
+
+// closely based upon ath9k_hw_version (a9k/hw.h)
+struct jaldi_hw_version {
+	u32 magic;
+	u32 devid;
+	u16 subvendorid;
+	u32 macVersion;
+	u16 macRev;
+	u16 phyRev;
+	u16 analog5GhzRev;
+	u16 analog2GhzRev; // don't think this is needed for us...
+	u16 subsysid;
+};
+
+#define HT40_CHANNEL_CENTER_SHIFT	10
+// channel mode flags -- from ath9k, many not needed here
+#define CHANNEL_CW_INT    0x00002
 
 enum jaldi_intr_type {
 	JALDI_INT_RX = 0x00000001,
@@ -232,7 +250,6 @@ struct chan_centers {
 	u16 ext_center;
 };
 
-// we're not currently doing power management
 enum jaldi_power_mode { 
 	JALDI_PM_AWAKE = 0,
 	JALDI_PM_FULL_SLEEP,
@@ -240,7 +257,12 @@ enum jaldi_power_mode {
 	JALDI_PM_UNDEFINED,
 };
 
-// different types of hw reset we perform.
+enum ser_reg_mode {
+	SER_REG_MODE_OFF = 0,
+	SER_REG_MODE_ON = 1,
+	SER_REG_MODE_AUTO = 2,
+};
+
 enum jaldi_reset_type {
 	JALDI_RESET_POWER_ON,
 	JALDI_RESET_WARM,
@@ -366,6 +388,9 @@ struct jaldi_hw_ops {
 	/* PHY ops */
 	int (*rf_set_freq)(struct jaldi_hw *hw,
 			   struct jaldi_channel *chan);
+	void (*spur_mitigate_freq)(struct jaldi_hw *hw,
+				   struct jaldi_channel *chan);
+	void (*do_getnf)(struct jaldi_hw *hw, int16_t nfarray[NUM_NF_READINGS]);
 };
 
 struct jaldi_hw {
@@ -384,6 +409,12 @@ struct jaldi_hw {
 	u16 rfsilent;
 	u32 rfkill_gpio;
 	u32 rfkill_polarity;
+
+	union {
+		struct ar5416_eeprom_def def;
+		struct ar5416_eeprom_4k map4k;
+		struct ar9287_eeprom map9287;
+	} eeprom;
 
 	/* Used to program the radio on non single-chip devices */
 	u32 *analogBank0Data;
@@ -413,14 +444,24 @@ struct jaldi_hw {
 	int serialize_regmode;
 	u8 ht_enable;
 	u8 max_txtrig_level; /* tx fifo */
+	u16 tx_trig_level;
+	u8 analog_shiftreg;
 
 	/* functions to control hw */
-	struct jaldi_hw_ops ops;
+	struct jaldi_hw_ops *ops;
 	struct jaldi_register_ops *reg_ops;
 	struct jaldi_bus_ops *bus_ops;
-	struct eeprom_ops eep_ops; // This is more or less copied from ath9k
+	struct eeprom_ops *eep_ops; // This is more or less copied from ath9k
 };
+
+int jaldi_hw_init(struct jaldi_hw *hw);
+void jaldi_hw_deinit(struct jaldi_hw *hw);
+void jaldi_hw_init_global_settings(struct jaldi_hw *hw);
 
 bool jaldi_hw_intrpend(struct jaldi_hw *hw);
 bool jaldi_hw_wait(struct jaldi_hw *hw, u32 reg, u32 mask, u32 val, u32 timeout);
+
+void jaldi_hw_get_channel_centers(struct jaldi_channel *chan, 
+				  struct chan_centers *centers);
+bool jaldi_hw_setpower(struct jaldi_hw *hw, enum jaldi_power_mode mode);
 #endif

@@ -29,7 +29,7 @@
  * Because we (JaldiMAC) are not doing anything with calibration yet,
  * perhaps we can leverage this capability. TODO: does 9280 support this?
  */
-static struct jadli_channel jaldi_5ghz_chantable[] = {
+static struct jaldi_channel jaldi_5ghz_chantable[] = {
 	/* _We_ call this UNII 1 */
 	CHAN5G(5180, 14), /* Channel 36 */
 	CHAN5G(5200, 15), /* Channel 40 */
@@ -68,7 +68,7 @@ static struct jadli_channel jaldi_5ghz_chantable[] = {
 	.hw_value       = (_hw_rate),                   \
 }
 
-static struct jaldi_rate jaldi_rates[] = {
+static struct jaldi_bitrate jaldi_rates[] = {
 	RATE(10, 0x1b),
 	RATE(20, 0x1a),
 	RATE(55, 0x19),
@@ -83,10 +83,12 @@ static struct jaldi_rate jaldi_rates[] = {
 	RATE(540, 0x0c),
 };
 
-static void jaldi_iowrite32(struct jaldi_hw *hw, u32 val, u32 reg_offset) {
-	struct jaldi_softc *sc = hw->hw_sc;
+static void jaldi_deinit_softc(struct jaldi_softc *sc);
 
-	if (hw->serialize_regmode = SER_REG_MODE_ON) {
+static void jaldi_iowrite32(struct jaldi_hw *hw, u32 val, u32 reg_offset) {
+	struct jaldi_softc *sc = hw->sc;
+
+	if (hw->serialize_regmode == SER_REG_MODE_ON) {
 		unsigned long flags;
 		spin_lock_irqsave(&sc->sc_serial_rw, flags);
 		iowrite32(val, sc->mem + reg_offset);
@@ -97,10 +99,10 @@ static void jaldi_iowrite32(struct jaldi_hw *hw, u32 val, u32 reg_offset) {
 }
 
 static void jaldi_ioread32(struct jaldi_hw *hw, u32 reg_offset) {
-	struct jaldi_softc *sc = hw->hw_sc;
+	struct jaldi_softc *sc = hw->sc;
 	u32 val; 
 
-	if (hw->serialize_regmode = SER_REG_MODE_ON) {
+	if (hw->serialize_regmode == SER_REG_MODE_ON) {
 		unsigned long flags;
 		spin_lock_irqsave(&sc->sc_serial_rw, flags);
 		val = ioread32(sc->mem + reg_offset);
@@ -117,17 +119,17 @@ static const struct jaldi_register_ops jaldi_reg_ops = {
 
 int jaldi_tx_init(struct jaldi_softc *sc, int nbufs)
 {
-	int error = 0;
 	
-	spin_lock_init(&sc->txbufferlock);
+	spin_lock_init(&sc->txbufferlock); // TODO: this lock is in jaldi_tx... 
 
+	return 0;
 
 }
 
-int jaldi_init_softc(u16 devid, struct jaldi_softc *sc, u16 subsyid, const struct jaldi_bus_ops *bus_ops)
+int jaldi_init_softc(u16 devid, struct jaldi_softc *sc, u16 subsysid, const struct jaldi_bus_ops *bus_ops)
 {
 	struct jaldi_hw *hw = NULL;
-	int ret = 0, i;
+	int ret = 0;
 
 	hw = kzalloc(sizeof(struct jaldi_hw), GFP_KERNEL);
 	if (!hw) return -ENOMEM;
@@ -157,9 +159,9 @@ err_hw:
 	return ret;
 }
 
-int jaldi_init_device(u16 devid, struct jaldi_softc *sc, u16 subsyid, const struct jaldi_bus_ops *bus_ops)
+int jaldi_init_device(u16 devid, struct jaldi_softc *sc, u16 subsysid, const struct jaldi_bus_ops *bus_ops)
 {
-	jaldi_hw *hw;
+	struct jaldi_hw *hw;
 	int error;
 
 	error = jaldi_init_softc(devid, sc, subsysid, bus_ops);
@@ -202,7 +204,7 @@ static void jaldi_deinit_softc(struct jaldi_softc *sc)
 		if (ATH_TXQ_SETUP(sc, i)) // TODO
 			jaldi_tx_cleanupq(sc, &sc->tx.txq[i]); // TODO
 
-	jaldi_hw_deinit(sc->sc_ah);
+	jaldi_hw_deinit(sc->hw);
 
 	kfree(sc->hw);
 	sc->hw = NULL;
@@ -210,8 +212,6 @@ static void jaldi_deinit_softc(struct jaldi_softc *sc)
 
 void jaldi_deinit_device(struct jaldi_softc *sc)
 {
-	int i = 0;
-
 	jaldi_ps_wakeup(sc); // TODO
 
 	jaldi_rx_cleanup(sc); // TODO 

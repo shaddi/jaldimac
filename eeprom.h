@@ -59,7 +59,7 @@
 #define AR5416_EEPROM_MAX           0xae0
 
 #define AR5416_EEPROM_START_ADDR \
-	(AR_SREV_9100(ah)) ? 0x1fff1000 : 0x503f1200
+	(AR_SREV_9100(hw)) ? 0x1fff1000 : 0x503f1200
 
 #define SD_NO_CTL               0xE0
 #define NO_CTL                  0xff
@@ -100,10 +100,10 @@
 #define jaldi_hw_use_flash(_hw)	(!(_hw->hw_flags & AH_USE_EEPROM)) 
 
 #define AR5416_VER_MASK (eep->baseEepHeader.version & AR5416_EEP_VER_MINOR_MASK)
-#define OLC_FOR_AR9280_20_LATER (AR_SREV_9280_20_OR_LATER(ah) && \
-				 ah->eep_ops->get_eeprom(ah, EEP_OL_PWRCTRL))
-#define OLC_FOR_AR9287_10_LATER (AR_SREV_9287_10_OR_LATER(ah) && \
-				 ah->eep_ops->get_eeprom(ah, EEP_OL_PWRCTRL))
+#define OLC_FOR_AR9280_20_LATER (AR_SREV_9280_20_OR_LATER(hw) && \
+				 hw->eep_ops->get_eeprom(hw, EEP_OL_PWRCTRL))
+#define OLC_FOR_AR9287_10_LATER (AR_SREV_9287_10_OR_LATER(hw) && \
+				 hw->eep_ops->get_eeprom(hw, EEP_OL_PWRCTRL))
 
 #define AR_EEPROM_RFSILENT_GPIO_SEL     0x001c
 #define AR_EEPROM_RFSILENT_GPIO_SEL_S   2
@@ -656,6 +656,7 @@ enum reg_ext_bitmap {
 
 struct jaldi_hw;
 struct jaldi_channel;
+enum jaldi_freq_band;
 
 struct eeprom_ops {
 	int (*check_eeprom)(struct jaldi_hw *hw);

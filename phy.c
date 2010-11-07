@@ -2,6 +2,9 @@
  * PHY-related settings.
  */
 
+#include "jaldi.h"
+#include "hw.h"
+
 static int jaldi_hw_set_freq(struct jaldi_hw *hw, struct jaldi_channel *chan)
 {
 	u16 bMode, fracMode, aModeRefSel = 0;
@@ -9,7 +12,7 @@ static int jaldi_hw_set_freq(struct jaldi_hw *hw, struct jaldi_channel *chan)
 	u32 refDivA = 24;
 
 	struct chan_centers centers;
-	jaldi_hw_get_channel_centers(hw, chan, &centers);
+	jaldi_hw_get_channel_centers(chan, &centers);
 
 	freq = centers.synth_center;
 
@@ -63,7 +66,7 @@ static int jaldi_hw_set_freq(struct jaldi_hw *hw, struct jaldi_channel *chan)
 
 /**
  * ar9002_hw_spur_mitigate - convert baseband spur frequency
- * @ah: atheros hardware structure
+ * @hw: hardware structure
  * @chan:
  *
  * For single-chip solutions. Converts to baseband spur frequency given the
@@ -101,7 +104,7 @@ static void jaldi_hw_spur_mitigate(struct jaldi_hw *hw,
 	memset(&mask_m, 0, sizeof(int8_t) * 123);
 	memset(&mask_p, 0, sizeof(int8_t) * 123);
 
-	jaldi_hw_get_channel_centers(hw, chan, &centers);
+	jaldi_hw_get_channel_centers(chan, &centers);
 	freq = centers.synth_center;
 
 	hw->config.spurmode = SPUR_ENABLE_EEPROM;
@@ -330,11 +333,11 @@ static void jaldi_hw_do_getnf(struct jaldi_hw *hw,
 {
 	int16_t nf;
 
-	nf = MS(REG_READ(ah, AR_PHY_CCA), AR9280_PHY_MINCCA_PWR);
+	nf = MS(REG_READ(hw, AR_PHY_CCA), AR9280_PHY_MINCCA_PWR);
 
 	if (nf & 0x100)
 		nf = 0 - ((nf ^ 0x1ff) + 1);
-		jaldi_print(common, ATH_DBG_CALIBRATE,
+		jaldi_print(JALDI_DEBUG,
 		  "NF calibrated [ctl] [chain 0] is %d\n", nf);
 
 	if (AR_SREV_9271(hw) && (nf >= -114))

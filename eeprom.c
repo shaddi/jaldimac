@@ -14,7 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "hw.h"
+#include "jaldi.h"
 
 static inline u16 jaldi_hw_fbin2freq(u8 fbin, bool is2GHz)
 {
@@ -28,7 +28,7 @@ void jaldi_hw_analog_shift_regwrite(struct jaldi_hw *hw, u32 reg, u32 val)
 {
         REG_WRITE(hw, reg, val);
 
-        if (hw->config.analog_shiftreg)
+        if (hw->analog_shiftreg)
 		udelay(100);
 }
 
@@ -42,7 +42,7 @@ void jaldi_hw_analog_shift_rmw(struct jaldi_hw *hw, u32 reg, u32 mask,
 
 	REG_WRITE(hw, reg, regVal);
 
-	if (hw->config.analog_shiftreg)
+	if (hw->analog_shiftreg)
 		udelay(100);
 }
 
@@ -91,7 +91,7 @@ bool jaldi_hw_get_lower_upper_index(u8 target, u8 *pList, u16 listSize,
 
 bool jaldi_hw_nvram_read(struct jaldi_hw *hw, u32 off, u16 *data)
 {
-	return hw->bus_ops->eeprom_read(hw, off, data);
+	return hw->bus_ops->eeprom_read(hw->sc, off, data);
 }
 
 void jaldi_hw_fill_vpd_table(u8 pwrMin, u8 pwrMax, u8 *pPwrList,
@@ -134,7 +134,7 @@ void jaldi_hw_get_legacy_target_powers(struct jaldi_hw *hw,
 	int matchIndex = -1, lowIndex = -1;
 	u16 freq;
 
-	jaldi_hw_get_channel_centers(hw, chan, &centers);
+	jaldi_hw_get_channel_centers(chan, &centers);
 	freq = (isExtTarget) ? centers.ext_center : centers.ctl_center;
 
 	if (freq <= jaldi_hw_fbin2freq(powInfo[0].bChannel,
@@ -189,7 +189,7 @@ void jaldi_hw_get_target_powers(struct jaldi_hw *hw,
 	int matchIndex = -1, lowIndex = -1;
 	u16 freq;
 
-	jaldi_hw_get_channel_centers(hw, chan, &centers);
+	jaldi_hw_get_channel_centers(chan, &centers);
 	freq = isHt40Target ? centers.synth_center : centers.ctl_center;
 
 	if (freq <= jaldi_hw_fbin2freq(powInfo[0].bChannel, IS_CHAN_2GHZ(chan))) {
