@@ -51,6 +51,12 @@ struct jaldi_packet *jaldi_tx_dequeue(struct jaldi_softc *sc) {
 	return pkt;
 }
 
+void jaldi_tx_cleanupq(struct jaldi_softc *sc, struct jaldi_txq *txq)
+{
+	jaldi_hw_releasetxqueue(sc->hw, txq->axq_qnum);
+	sc->tx.txqsetup &= ~(1<<txq->axq_qnum);
+}
+
 irqreturn_t jaldi_isr(int irq, void *dev)
 {
 	struct jaldi_softc *sc = dev;

@@ -120,10 +120,49 @@ static const struct jaldi_register_ops jaldi_reg_ops = {
 int jaldi_tx_init(struct jaldi_softc *sc, int nbufs)
 {
 	
-	spin_lock_init(&sc->txbufferlock); // TODO: this lock is in jaldi_tx... 
+	spin_lock_init(&sc->tx.txbufferlock);
 
 	return 0;
 
+}
+
+static int jaldi_init_queues(struct jaldi_softc *sc)
+{
+	int i = 0;
+
+	for (i = 0; i < ARRAY_SIZE(sc->tx_hwq_map); i++)
+		sc->tx.hwq_map[i] = -1;
+
+	
+	if (!jaldi_tx_setup(sc, JALDI_WME_AC_BK)) { // TODO
+		jaldi_print(JALDI_FATAL,
+			  "Unable to setup xmit queue for BK traffic\n");
+		goto err;
+	}
+
+	if (!jaldi_tx_setup(sc, JALDI_WME_AC_BE)) {
+		jaldi_print(JALDI_FATAL,
+			  "Unable to setup xmit queue for BE traffic\n");
+		goto err;
+	}
+	if (!jaldi_tx_setup(sc, JALDI_WME_AC_VI)) {
+		jaldi_print(JALDI_FATAL,
+			  "Unable to setup xmit queue for VI traffic\n");
+		goto err;
+	}
+	if (!jaldi_tx_setup(sc, JALDI_WME_AC_VO)) {
+		jaldi_print(JALDI_FATAL,
+			  "Unable to setup xmit queue for VO traffic\n");
+		goto err;
+	}
+
+	return 0;
+err:
+	for (i = 0; i < JALDI_NUM_TX_QUEUES; i++)
+		if (JALDI_TXQ_SETUP(sc, i))
+			jaldi_tx_cleanupq(sc, &sc->tx.txq[i]);
+
+	return -EIO;
 }
 
 int jaldi_init_softc(u16 devid, struct jaldi_softc *sc, u16 subsysid, const struct jaldi_bus_ops *bus_ops)

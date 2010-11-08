@@ -12,6 +12,7 @@
 #include "reg.h"
 #include "eeprom.h"
 #include "phy.h"
+#include "mac.h"
 
 #define ATHEROS_VENDOR_ID	0x168c
 
@@ -308,7 +309,7 @@ enum wireless_mode {
 /* NB: This is a direct copy of ath9k_hw_caps to avoid modifying low-level 
  * code as much as possible. 
  *
- * VEOL seems to be deprecated in ath9k; beacons should be generated in
+ * VEOL seems to be deprecated in ath9k; 80211 beacons are now generated in
  * software instead. Nonetheless, we keep track of the hw capability here. */
 enum jaldi_hw_caps {
 	JALDI_HW_CAP_MIC_AESCCM                 = BIT(0),
@@ -356,6 +357,11 @@ struct jaldi_hw_capabilities {
 	u8 tx_desc_len;
 	u8 txs_len;
 };
+
+/***********************/
+/* MAC data structures */
+/***********************/
+
 
 struct jaldi_bus_ops {
 	enum jaldi_bus_type type;

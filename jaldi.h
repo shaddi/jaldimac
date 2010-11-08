@@ -107,6 +107,11 @@ struct jaldi_buf {
 /**********/
 /*  MAC   */
 /**********/
+enum jaldi_tx_queue {
+	JALDI_TX_QUEUE_INACTIVE = 0,
+	JALDI_TX_QUEUE_DATA,
+};
+
 enum jaldi_tx_queue_type {
 	JALDI_WME_AC_BK = 0,	// background (lowest priority)
 	JALDI_WME_AC_BE,	// best effort
@@ -115,11 +120,31 @@ enum jaldi_tx_queue_type {
 	JALDI_WME_UNSP
 };
 
+#define JALDI_TXFIFO_DEPTH 8
+struct jaldi_txq {
+	u32 axq_qnum;
+	u32 *axq_link;
+	struct list_head axq_q;
+	spinlock_t axq_lock;
+	u32 axq_depth;
+	bool stopped;
+	bool axq_tx_inprogress;
+	struct list_head axq_acq;
+	struct list_head txq_fifo[JALDI_TXFIFO_DEPTH];
+	struct list_head txq_fifo_pending;
+	u8 txq_headidx;
+	u8 txq_tailidx;
+	int pending_frames;
+};
+
 struct jaldi_tx {
 	u16 seq_no;
+	u32 txqsetup;
 	int hwq_map[JALDI_WME_AC_VO+1]; // the five jaldi hw queues
 	spinlock_t txbuflock;
 	struct list_head txbuf;
+	struct jaldi_txq txq[JALDI_NUM_TX_QUEUES];
+	struct jaldi_descdma txdma;
 };
 
 struct jaldi_softc {
@@ -165,6 +190,7 @@ int jaldi_init_device(u16 devid, struct jaldi_softc *sc, u16 subsysid, const str
 void jaldi_deinit_device(struct jaldi_softc *sc);
 int jaldi_init_interrupts(struct jaldi_softc *sc); 
 
+void jaldi_tx_cleanupq(struct jaldi_softc *sc, struct jaldi_txq *txq);
 irqreturn_t jaldi_isr(int irq, void *dev);
 
 #endif /* JALDI_H */

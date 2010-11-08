@@ -1314,6 +1314,12 @@ int jaldi_hw_init(struct jaldi_hw *hw)
 /***************/
 /* MAC (RX/TX) */
 /***************/
+
+u32 jaldi_hw_gettxbuf(struct jaldi_hw *hw, u32 q)
+{
+	return REG_READ(hw, AR_QTXDP(q));
+}
+
 /* puts a tx_buf (pointer to dma) in specified hw queue */
 void jaldi_hw_puttxbuf(struct jaldi_hw *hw, u32 q, u32 txdp)
 {
@@ -1325,4 +1331,328 @@ void jaldi_hw_txstart(struct jaldi_hw *hw, u32 q)
 	jaldi_print(JALDI_DEBUG,
 		  "Enable TXE on queue: %u\n", q);
 	REG_WRITE(hw, AR_Q_TXE, 1 << q);
+}
+
+/**
+ * jaldi_hw_updatetxtriglevel - adjusts the frame trigger level
+ *
+ * @hw: hardware struct
+ * @bIncTrigLevel: whether or not the frame trigger level should be updated
+ * 
+ * From ath9k:
+ * "The frame trigger level specifies the minimum number of bytes,
+ * in units of 64 bytes, that must be DMA'ed into the PCU TX FIFO
+ * before the PCU will initiate sending the frame on the air. This can
+ * mean we initiate transmit before a full frame is on the PCU TX FIFO.
+ * Resets to 0x1 (meaning 64 bytes or a full frame, whichever occurs
+ * first)
+ *
+ * Caution must be taken to ensure to set the frame trigger level based
+ * on the DMA request size. For example if the DMA request size is set to
+ * 128 bytes the trigger level cannot exceed 6 * 64 = 384. This is because
+ * there need to be enough space in the tx FIFO for the requested transfer
+ * size. Hence the tx FIFO will stop with 512 - 128 = 384 bytes. If we set
+ * the threshold to a value beyond 6, then the transmit will hang.
+ *
+ * Current dual stream devices have a PCU TX FIFO size of 8 KB.
+ * Current single stream devices have a PCU TX FIFO size of 4 KB, however,
+ * there is a hardware issue which forces us to use 2 KB instead so the
+ * frame trigger level must not exceed 2 KB for these chipsets."
+ */
+bool jaldi_hw_updatetxtriglevel(struct jaldi_hw *hw, bool bIncTrigLevel)
+{
+	u32 txcfg, curLevel, newLevel;
+	enum ath9k_int omask;
+
+	if (hw->tx_trig_level >= hw->max_txtrig_level)
+		return false;
+
+	omask = jaldi_hw_set_interrupts(hw, hw->imask & ~ATH9K_INT_GLOBAL); // TODO
+
+	txcfg = REG_READ(hw, AR_TXCFG);
+	curLevel = MS(txcfg, AR_FTRIG);
+	newLevel = curLevel;
+	if (bIncTrigLevel) {
+		if (curLevel < hw->max_txtrig_level)
+			newLevel++;
+	} else if (curLevel > MIN_TX_FIFO_THRESHOLD)
+		newLevel--;
+	if (newLevel != curLevel)
+		REG_WRITE(hw, AR_TXCFG,
+			  (txcfg & ~AR_FTRIG) | SM(newLevel, AR_FTRIG));
+
+	jaldi_hw_set_interrupts(hw, omask); // TODO
+
+	hw->tx_trig_level = newLevel;
+
+	return newLevel != curLevel;
+}
+
+
+/* Note to self: was going to integrate tx queue setup, release, and reset next.
+ * Next need to look into the various descriptor structs and queue info structs
+ * to see what I need to port over from those. Work harder, you are behind. */
+int jaldi_hw_setuptxqueue(struct jaldi_hw *hw, enum jaldi_tx_queue type,
+			  const struct ath9k_tx_queue_info *qinfo)
+{
+	struct ath9k_tx_queue_info *qi;
+	struct jaldi_hw_capabilities *pCap = &hw->caps;
+	int q;
+
+	switch (type) {
+	case JALDI_TX_QUEUE_DATA:
+		for (q = 0; q < pCap->total_queues; q++)
+			if (hw->txq[q].tqi_type ==
+			    JALDI_TX_QUEUE_INACTIVE)
+				break;
+		if (q == pCap->total_queues) {
+			jaldi_print(JALDI_FATAL,
+				  "No available TX queue\n");
+			return -1;
+		}
+		break;
+	default:
+		jaldi_print(JALDI_FATAL,
+			  "Invalid TX queue type: %u\n", type);
+		return -1;
+	}
+
+	jaldi_print(JALDI_INFO, "Setup TX queue: %u\n", q);
+
+	qi = &hw->txq[q];
+	if (qi->tqi_type != JALDI_TX_QUEUE_INACTIVE) {
+		jaldi_print(JALDI_FATAL,
+			  "TX queue: %u already active\n", q);
+		return -1;
+	}
+	memset(qi, 0, sizeof(struct jaldi_tx_queue_info));
+	qi->tqi_type = type;
+	if (qinfo == NULL) {
+		qi->tqi_qflags =
+			TXQ_FLAG_TXOKINT_ENABLE
+			| TXQ_FLAG_TXERRINT_ENABLE
+			| TXQ_FLAG_TXDESCINT_ENABLE | TXQ_FLAG_TXURNINT_ENABLE;
+		qi->tqi_aifs = INIT_AIFS;
+		qi->tqi_cwmin = JALDI_TXQ_USEDEFAULT;
+		qi->tqi_cwmax = INIT_CWMAX;
+		qi->tqi_shretry = INIT_SH_RETRY;
+		qi->tqi_lgretry = INIT_LG_RETRY;
+		qi->tqi_physCompBuf = 0;
+	} else {
+		qi->tqi_physCompBuf = qinfo->tqi_physCompBuf;
+		(void) ath9k_hw_set_txq_props(hw, q, qinfo); // TODO
+	}
+
+	return q;
+}
+
+bool jaldi_hw_releasetxqueue(struct jaldi_hw *hw, u32 q)
+{
+	struct jaldi_hw_capabilities *pCap = &hw->caps;
+	struct ath9k_tx_queue_info *qi;
+
+	if (q >= pCap->total_queues) {
+		jaldi_print(JALDI_ALERT, "Release TXQ, "
+			  "invalid queue: %u\n", q);
+		return false;
+	}
+	qi = &hw->txq[q];
+	if (qi->tqi_type == JALDI_TX_QUEUE_INACTIVE) {
+		jaldi_print(JALDI_ALERT, "Release TXQ, "
+			  "inactive queue: %u\n", q);
+		return false;
+	}
+
+	jaldi_print(JALDI_DEBUG, "Release TX queue: %u\n", q);
+
+	qi->tqi_type = JALDI_TX_QUEUE_INACTIVE;
+	/* not sure we need this TODO
+	hw->txok_interrupt_mask &= ~(1 << q);
+	hw->txerr_interrupt_mask &= ~(1 << q);
+	hw->txdesc_interrupt_mask &= ~(1 << q);
+	hw->txeol_interrupt_mask &= ~(1 << q);
+	hw->txurn_interrupt_mask &= ~(1 << q); */
+	ath9k_hw_set_txq_interrupts(ah, qi); // TODO
+
+	return true;
+}
+
+/* Because jaldi doesn't deal with beacons or cabq a lot of this queue 
+ * reset code isn't necessary. First pass through eliminated the most 
+ * obvious stuff but I'm sure this could be simplified.
+ */
+bool jaldi_hw_resettxqueue(struct jaldi_hw *hw, u32 q)
+{
+	struct jaldi_hw_capabilities *pCap = &hw->caps;
+	struct jaldi_channel *chan = hw->curchan;
+	struct ath9k_tx_queue_info *qi;
+	u32 cwMin, chanCwMin, value;
+
+	if (q >= pCap->total_queues) {
+		jaldi_print(JALDI_DEBUG, "Reset TXQ, "
+			  "invalid queue: %u\n", q);
+		return false;
+	}
+
+	qi = &hw->txq[q];
+	if (qi->tqi_type == ATH9K_TX_QUEUE_INACTIVE) {
+		jaldi_print(JALDI_DEBUG, "Reset TXQ, "
+			  "inactive queue: %u\n", q);
+		return true;
+	}
+
+	jaldi_print(JALDI_DEBUG, "Reset TX queue: %u\n", q);
+
+	if (qi->tqi_cwmin == JALDI_TXQ_USEDEFAULT) {
+		if (chan && IS_CHAN_B(chan))
+			chanCwMin = INIT_CWMIN_11B;
+		else
+			chanCwMin = INIT_CWMIN;
+
+		for (cwMin = 1; cwMin < chanCwMin; cwMin = (cwMin << 1) | 1);
+	} else
+		cwMin = qi->tqi_cwmin;
+
+	ENABLE_REGWRITE_BUFFER(hw);
+
+	REG_WRITE(hw, AR_DLCL_IFS(q),
+		  SM(cwMin, AR_D_LCL_IFS_CWMIN) |
+		  SM(qi->tqi_cwmax, AR_D_LCL_IFS_CWMAX) |
+		  SM(qi->tqi_aifs, AR_D_LCL_IFS_AIFS));
+
+	REG_WRITE(hw, AR_DRETRY_LIMIT(q),
+		  SM(INIT_SSH_RETRY, AR_D_RETRY_LIMIT_STA_SH) |
+		  SM(INIT_SLG_RETRY, AR_D_RETRY_LIMIT_STA_LG) |
+		  SM(qi->tqi_shretry, AR_D_RETRY_LIMIT_FR_SH));
+
+	REG_WRITE(hw, AR_QMISC(q), AR_Q_MISC_DCU_EARLY_TERM_REQ);
+	REG_WRITE(hw, AR_DMISC(q),
+		  AR_D_MISC_CW_BKOFF_EN | AR_D_MISC_FRAG_WAIT_EN | 0x2);
+
+	REGWRITE_BUFFER_FLUSH(hw);
+
+	if (qi->tqi_cbrPeriod) {
+		REG_WRITE(hw, AR_QCBRCFG(q),
+			  SM(qi->tqi_cbrPeriod, AR_Q_CBRCFG_INTERVAL) |
+			  SM(qi->tqi_cbrOverflowLimit, AR_Q_CBRCFG_OVF_THRESH));
+		REG_WRITE(hw, AR_QMISC(q),
+			  REG_READ(hw, AR_QMISC(q)) | AR_Q_MISC_FSP_CBR |
+			  (qi->tqi_cbrOverflowLimit ?
+			   AR_Q_MISC_CBR_EXP_CNTR_LIMIT_EN : 0));
+	}
+
+	REGWRITE_BUFFER_FLUSH(hw);
+
+	REG_WRITE(hw, AR_DCHNTIME(q),
+		  SM(qi->tqi_burstTime, AR_D_CHNTIME_DUR) |
+		  (qi->tqi_burstTime ? AR_D_CHNTIME_EN : 0));
+
+	if (qi->tqi_burstTime
+	    && (qi->tqi_qflags & TXQ_FLAG_RDYTIME_EXP_POLICY_ENABLE)) {
+		REG_WRITE(hw, AR_QMISC(q),
+			  REG_READ(hw, AR_QMISC(q)) |
+			  AR_Q_MISC_RDYTIME_EXP_POLICY);
+
+	}
+
+	if (qi->tqi_qflags & TXQ_FLAG_BACKOFF_DISABLE) {
+		REG_WRITE(hw, AR_DMISC(q),
+			  REG_READ(hw, AR_DMISC(q)) |
+			  AR_D_MISC_POST_FR_BKOFF_DIS);
+	}
+
+	REGWRITE_BUFFER_FLUSH(hw);
+	DISABLE_REGWRITE_BUFFER(hw);
+
+	if (qi->tqi_qflags & TXQ_FLAG_FRAG_BURST_BACKOFF_ENABLE) {
+		REG_WRITE(hw, AR_DMISC(q),
+			  REG_READ(hw, AR_DMISC(q)) |
+			  AR_D_MISC_FRAG_BKOFF_EN);
+	}
+
+	if (qi->tqi_intFlags & JALDI_TXQ_USE_LOCKOUT_BKOFF_DIS) {
+		REG_WRITE(hw, AR_DMISC(q),
+			  REG_READ(hw, AR_DMISC(q)) |
+			  SM(AR_D_MISC_ARB_LOCKOUT_CNTRL_GLOBAL,
+			     AR_D_MISC_ARB_LOCKOUT_CNTRL) |
+			  AR_D_MISC_POST_FR_BKOFF_DIS);
+	}
+
+	if (AR_SREV_9300_20_OR_LATER(hw))
+		REG_WRITE(hw, AR_Q_DESC_CRCCHK, AR_Q_DESC_CRCCHK_EN);
+
+	if (qi->tqi_qflags & TXQ_FLAG_TXOKINT_ENABLE)
+		hw->txok_interrupt_mask |= 1 << q;
+	else
+		hw->txok_interrupt_mask &= ~(1 << q);
+	if (qi->tqi_qflags & TXQ_FLAG_TXERRINT_ENABLE)
+		hw->txerr_interrupt_mask |= 1 << q;
+	else
+		hw->txerr_interrupt_mask &= ~(1 << q);
+	if (qi->tqi_qflags & TXQ_FLAG_TXDESCINT_ENABLE)
+		hw->txdesc_interrupt_mask |= 1 << q;
+	else
+		hw->txdesc_interrupt_mask &= ~(1 << q);
+	if (qi->tqi_qflags & TXQ_FLAG_TXEOLINT_ENABLE)
+		hw->txeol_interrupt_mask |= 1 << q;
+	else
+		hw->txeol_interrupt_mask &= ~(1 << q);
+	if (qi->tqi_qflags & TXQ_FLAG_TXURNINT_ENABLE)
+		hw->txurn_interrupt_mask |= 1 << q;
+	else
+		hw->txurn_interrupt_mask &= ~(1 << q);
+	ath9k_hw_set_txq_interrupts(hw, qi); // TODO
+
+	return true;
+}
+
+/*
+ * This can stop or re-enables RX.
+ *
+ * If bool is set this will kill any frame which is currently being
+ * transferred between the MAC and baseband and also prevent any new
+ * frames from getting started.
+ */
+bool jaldi_hw_setrxabort(struct jaldi_hw *hw, bool set)
+{
+	u32 reg;
+
+	if (set) {
+		REG_SET_BIT(hw, AR_DIAG_SW,
+			    (AR_DIAG_RX_DIS | AR_DIAG_RX_ABORT));
+
+		if (!jaldi_hw_wait(hw, AR_OBS_BUS_1, AR_OBS_BUS_1_RX_STATE,
+				   0, AH_WAIT_TIMEOUT)) {
+			REG_CLR_BIT(hw, AR_DIAG_SW,
+				    (AR_DIAG_RX_DIS |
+				     AR_DIAG_RX_ABORT));
+
+			reg = REG_READ(hw, AR_OBS_BUS_1);
+			jaldi_print(JALDI_FATAL,
+				  "RX failed to go idle in 10 ms RXSM=0x%x\n",
+				  reg);
+
+			return false;
+		}
+	} else {
+		REG_CLR_BIT(hw, AR_DIAG_SW,
+			    (AR_DIAG_RX_DIS | AR_DIAG_RX_ABORT));
+	}
+
+	return true;
+}
+
+void jaldi_hw_putrxbuf(struct jaldi_hw *hw, u32 rxdp)
+{
+	REG_WRITE(hw, AR_RXDP, rxdp);
+}
+
+void jaldi_hw_startpcureceive(struct jaldi_hw *hw)
+{
+	REG_CLR_BIT(hw, AR_DIAG_SW, (AR_DIAG_RX_DIS | AR_DIAG_RX_ABORT));
+}
+
+void jaldi_hw_stoppcurecv(struct jaldi_hw *hw)
+{
+	REG_SET_BIT(hw, AR_DIAG_SW, AR_DIAG_RX_DIS);
 }
