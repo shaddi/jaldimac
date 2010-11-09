@@ -120,17 +120,129 @@ static const struct jaldi_register_ops jaldi_reg_ops = {
 int jaldi_tx_init(struct jaldi_softc *sc, int nbufs)
 {
 	
-	spin_lock_init(&sc->tx.txbufferlock);
+	spin_lock_init(&sc->tx.txbuflock);
 
 	return 0;
 
+}
+/*  From ath9k:
+ *  "This function will allocate both the DMA descriptor structure, and the
+ *  buffers it contains.  These are used to contain the descriptors used
+ *  by the system."
+*/
+int jaldi_descdma_setup(struct jaldi_softc *sc, struct jaldi_descdma *dd,
+		      struct list_head *head, const char *name,
+		      int nbuf, int ndesc, bool is_tx)
+{
+#define	DS2PHYS(_dd, _ds)						\
+	((_dd)->dd_desc_paddr + ((caddr_t)(_ds) - (caddr_t)(_dd)->dd_desc))
+#define ATH_DESC_4KB_BOUND_CHECK(_daddr) ((((_daddr) & 0xFFF) > 0xF7F) ? 1 : 0)
+#define ATH_DESC_4KB_BOUND_NUM_SKIPPED(_len) ((_len) / 4096)
+	u8 *ds;
+	struct jaldi_buf *bf;
+	int i, bsize, error, desc_len;
+
+	jaldi_print(JALDI_DEBUG, "%s DMA: %u buffers %u desc/buf\n",
+		  name, nbuf, ndesc);
+
+	INIT_LIST_HEAD(head);
+
+	if (is_tx)
+		desc_len = sc->hw->caps.tx_desc_len;
+	else
+		desc_len = sizeof(struct jaldi_desc);
+
+	/* ath_desc must be a multiple of DWORDs */
+	if ((desc_len % 4) != 0) {
+		jaldi_print(JALDI_FATAL,
+			  "jaldi_desc not DWORD aligned\n");
+		BUG_ON((desc_len % 4) != 0);
+		error = -ENOMEM;
+		goto fail;
+	}
+
+	dd->dd_desc_len = desc_len * nbuf * ndesc;
+
+	/*
+	 * Need additional DMA memory because we can't use
+	 * descriptors that cross the 4K page boundary. Assume
+	 * one skipped descriptor per 4K page.
+	 */
+	if (!(sc->hw->caps.hw_caps & ATH9K_HW_CAP_4KB_SPLITTRANS)) {
+		u32 ndesc_skipped =
+			ATH_DESC_4KB_BOUND_NUM_SKIPPED(dd->dd_desc_len);
+		u32 dma_len;
+
+		while (ndesc_skipped) {
+			dma_len = ndesc_skipped * desc_len;
+			dd->dd_desc_len += dma_len;
+
+			ndesc_skipped = ATH_DESC_4KB_BOUND_NUM_SKIPPED(dma_len);
+		}
+	}
+
+	/* allocate descriptors */
+	dd->dd_desc = dma_alloc_coherent(sc->dev, dd->dd_desc_len,
+					 &dd->dd_desc_paddr, GFP_KERNEL);
+	if (dd->dd_desc == NULL) {
+		error = -ENOMEM;
+		goto fail;
+	}
+	ds = (u8 *) dd->dd_desc;
+	jaldi_print(JALDI_INFO, "%s DMA map: %p (%u) -> %llx (%u)\n",
+		  name, ds, (u32) dd->dd_desc_len,
+		  ito64(dd->dd_desc_paddr), /*XXX*/(u32) dd->dd_desc_len);
+
+	/* allocate buffers */
+	bsize = sizeof(struct jaldi_buf) * nbuf;
+	bf = kzalloc(bsize, GFP_KERNEL);
+	if (bf == NULL) {
+		error = -ENOMEM;
+		goto fail2;
+	}
+	dd->dd_bufptr = bf;
+
+	for (i = 0; i < nbuf; i++, bf++, ds += (desc_len * ndesc)) {
+		bf->bf_desc = ds;
+		bf->bf_daddr = DS2PHYS(dd, ds);
+
+		if (!(sc->hw->caps.hw_caps &
+		      ATH9K_HW_CAP_4KB_SPLITTRANS)) {
+			/*
+			 * Skip descriptor addresses which can cause 4KB
+			 * boundary crossing (addr + length) with a 32 dword
+			 * descriptor fetch.
+			 */
+			while (ATH_DESC_4KB_BOUND_CHECK(bf->bf_daddr)) {
+				BUG_ON((caddr_t) bf->bf_desc >=
+				       ((caddr_t) dd->dd_desc +
+					dd->dd_desc_len));
+
+				ds += (desc_len * ndesc);
+				bf->bf_desc = ds;
+				bf->bf_daddr = DS2PHYS(dd, ds);
+			}
+		}
+		list_add_tail(&bf->list, head);
+		list_add_tail(&bf->list, head);
+	}
+	return 0;
+fail2:
+	dma_free_coherent(sc->dev, dd->dd_desc_len, dd->dd_desc,
+			  dd->dd_desc_paddr);
+fail:
+	memset(dd, 0, sizeof(*dd));
+	return error;
+#undef ATH_DESC_4KB_BOUND_CHECK
+#undef ATH_DESC_4KB_BOUND_NUM_SKIPPED
+#undef DS2PHYS
 }
 
 static int jaldi_init_queues(struct jaldi_softc *sc)
 {
 	int i = 0;
 
-	for (i = 0; i < ARRAY_SIZE(sc->tx_hwq_map); i++)
+	for (i = 0; i < ARRAY_SIZE(sc->tx.hwq_map); i++)
 		sc->tx.hwq_map[i] = -1;
 
 	

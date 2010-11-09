@@ -41,6 +41,7 @@
 #define JALDI_WAIT_TIMEOUT		100000 /* (us) */
 #define JALDI_TIME_QUANTUM		10
 #define POWER_UP_TIME			10000
+#define SPUR_RSSI_THRESH		40
 
 #define JALDI_CLOCK_RATE_CCK		22
 #define JALDI_CLOCK_RATE_5GHZ_OFDM	40
@@ -151,8 +152,19 @@
 			  ((_c)->chanmode == CHANNEL_HT40MINUS))
 
 
+#define BASE_ACTIVATE_DELAY     100
+
+#define SPUR_DISABLE        	0
+#define SPUR_ENABLE_IOCTL   	1
+#define SPUR_ENABLE_EEPROM  	2
+#define AR_EEPROM_MODAL_SPURS   5
+#define AR_SPUR_5413_1      	1640
+#define AR_SPUR_5413_2      	1200
+#define AR_NO_SPUR      	0x8000
 #define AR_BASE_FREQ_2GHZ   	2300
 #define AR_BASE_FREQ_5GHZ   	4900
+#define AR_SPUR_FEEQ_BOUND_HT40 19
+#define AR_SPUR_FEEQ_BOUND_HT20 10
 
 /* tx fifo thresholds
  * Single stream device AR9285 and AR9271 require 2 KB
@@ -358,10 +370,6 @@ struct jaldi_hw_capabilities {
 	u8 txs_len;
 };
 
-/***********************/
-/* MAC data structures */
-/***********************/
-
 
 struct jaldi_bus_ops {
 	enum jaldi_bus_type type;
@@ -443,6 +451,8 @@ struct jaldi_hw {
 
 	bool chip_fullsleep;
 
+	struct jaldi_tx_queue_info txq[JALDI_NUM_TX_QUEUES];
+
 	/* hw config (takes place of ath9k_ops_config) */
 	bool rx_intr_mitigation;
 	bool tx_intr_mitigation;
@@ -452,6 +462,7 @@ struct jaldi_hw {
 	u8 max_txtrig_level; /* tx fifo */
 	u16 tx_trig_level;
 	u8 analog_shiftreg;
+	int spurmode;
 
 	/* functions to control hw */
 	struct jaldi_hw_ops *ops;

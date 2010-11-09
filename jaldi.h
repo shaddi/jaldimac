@@ -34,6 +34,15 @@
 #include "hw.h"
 #include "debug.h"
 
+/* Macro to expand scalars to 64-bit objects */
+#define	ito64(x) (sizeof(x) == 1) ?			\
+	(((unsigned long long int)(x)) & (0xff)) :	\
+	(sizeof(x) == 2) ?				\
+	(((unsigned long long int)(x)) & 0xffff) :	\
+	((sizeof(x) == 4) ?				\
+	 (((unsigned long long int)(x)) & 0xffffffff) : \
+	 (unsigned long long int)(x))
+
 #define SC_OP_INVALID                BIT(0)
 #define SC_OP_BEACONS                BIT(1)
 #define SC_OP_RXAGGR                 BIT(2)
@@ -104,39 +113,17 @@ struct jaldi_buf {
 	u16 bf_flags;
 };
 
+struct jaldi_descdma {
+	void *dd_desc;
+	dma_addr_t dd_desc_paddr;
+	u32 dd_desc_len;
+	struct jaldi_buf *dd_bufptr;
+};
+
+
 /**********/
 /*  MAC   */
 /**********/
-enum jaldi_tx_queue {
-	JALDI_TX_QUEUE_INACTIVE = 0,
-	JALDI_TX_QUEUE_DATA,
-};
-
-enum jaldi_tx_queue_type {
-	JALDI_WME_AC_BK = 0,	// background (lowest priority)
-	JALDI_WME_AC_BE,	// best effort
-	JALDI_WME_AC_VI,	// video
-	JALDI_WME_AC_VO,	// voice (highest priority)
-	JALDI_WME_UNSP
-};
-
-#define JALDI_TXFIFO_DEPTH 8
-struct jaldi_txq {
-	u32 axq_qnum;
-	u32 *axq_link;
-	struct list_head axq_q;
-	spinlock_t axq_lock;
-	u32 axq_depth;
-	bool stopped;
-	bool axq_tx_inprogress;
-	struct list_head axq_acq;
-	struct list_head txq_fifo[JALDI_TXFIFO_DEPTH];
-	struct list_head txq_fifo_pending;
-	u8 txq_headidx;
-	u8 txq_tailidx;
-	int pending_frames;
-};
-
 struct jaldi_tx {
 	u16 seq_no;
 	u32 txqsetup;

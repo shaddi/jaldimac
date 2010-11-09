@@ -38,11 +38,11 @@ static int jaldi_hw_set_freq(struct jaldi_hw *hw, struct jaldi_channel *chan)
 				channelSel = CHANSEL_5G(freq);
 
 				/* RefDivA setting */
-				REG_RMW_FIELD(hw, AR_AN_SYNTH9, AR_AN_SYNTH_REFDIVA, refDivA);
+				REG_RMW_FIELD(hw, AR_AN_SYNTH9, AR_AN_SYNTH9_REFDIVA, refDivA);
 		}
 
 		if(!fracMode) {
-			ndiv = (freq * (refDivaA >> aModeRefSel)) / 60;
+			ndiv = (freq * (refDivA >> aModeRefSel)) / 60;
 			channelSel = ndiv & 0x1ff;
 			channelFrac = (ndiv & 0xfffffe00) * 2;
 			channelSel = (channelSel << 17) | channelFrac;
@@ -107,7 +107,7 @@ static void jaldi_hw_spur_mitigate(struct jaldi_hw *hw,
 	jaldi_hw_get_channel_centers(chan, &centers);
 	freq = centers.synth_center;
 
-	hw->config.spurmode = SPUR_ENABLE_EEPROM;
+	hw->spurmode = SPUR_ENABLE_EEPROM;
 	for (i = 0; i < AR_EEPROM_MODAL_SPURS; i++) {
 		cur_bb_spur = hw->eep_ops->get_spur_channel(hw, i, is2GHz);
 

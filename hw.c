@@ -1393,9 +1393,9 @@ bool jaldi_hw_updatetxtriglevel(struct jaldi_hw *hw, bool bIncTrigLevel)
  * Next need to look into the various descriptor structs and queue info structs
  * to see what I need to port over from those. Work harder, you are behind. */
 int jaldi_hw_setuptxqueue(struct jaldi_hw *hw, enum jaldi_tx_queue type,
-			  const struct ath9k_tx_queue_info *qinfo)
+			  const struct jaldi_tx_queue_info *qinfo)
 {
-	struct ath9k_tx_queue_info *qi;
+	struct jaldi_tx_queue_info *qi;
 	struct jaldi_hw_capabilities *pCap = &hw->caps;
 	int q;
 
@@ -1449,7 +1449,7 @@ int jaldi_hw_setuptxqueue(struct jaldi_hw *hw, enum jaldi_tx_queue type,
 bool jaldi_hw_releasetxqueue(struct jaldi_hw *hw, u32 q)
 {
 	struct jaldi_hw_capabilities *pCap = &hw->caps;
-	struct ath9k_tx_queue_info *qi;
+	struct jaldi_tx_queue_info *qi;
 
 	if (q >= pCap->total_queues) {
 		jaldi_print(JALDI_ALERT, "Release TXQ, "
@@ -1472,7 +1472,7 @@ bool jaldi_hw_releasetxqueue(struct jaldi_hw *hw, u32 q)
 	hw->txdesc_interrupt_mask &= ~(1 << q);
 	hw->txeol_interrupt_mask &= ~(1 << q);
 	hw->txurn_interrupt_mask &= ~(1 << q); */
-	ath9k_hw_set_txq_interrupts(ah, qi); // TODO
+	//ath9k_hw_set_txq_interrupts(ah, qi); // TODO
 
 	return true;
 }
@@ -1485,7 +1485,7 @@ bool jaldi_hw_resettxqueue(struct jaldi_hw *hw, u32 q)
 {
 	struct jaldi_hw_capabilities *pCap = &hw->caps;
 	struct jaldi_channel *chan = hw->curchan;
-	struct ath9k_tx_queue_info *qi;
+	struct jaldi_tx_queue_info *qi;
 	u32 cwMin, chanCwMin, value;
 
 	if (q >= pCap->total_queues) {
@@ -1495,7 +1495,7 @@ bool jaldi_hw_resettxqueue(struct jaldi_hw *hw, u32 q)
 	}
 
 	qi = &hw->txq[q];
-	if (qi->tqi_type == ATH9K_TX_QUEUE_INACTIVE) {
+	if (qi->tqi_type == JALDI_TX_QUEUE_INACTIVE) {
 		jaldi_print(JALDI_DEBUG, "Reset TXQ, "
 			  "inactive queue: %u\n", q);
 		return true;
@@ -1581,6 +1581,7 @@ bool jaldi_hw_resettxqueue(struct jaldi_hw *hw, u32 q)
 	if (AR_SREV_9300_20_OR_LATER(hw))
 		REG_WRITE(hw, AR_Q_DESC_CRCCHK, AR_Q_DESC_CRCCHK_EN);
 
+	/* Do we use this? I think not.
 	if (qi->tqi_qflags & TXQ_FLAG_TXOKINT_ENABLE)
 		hw->txok_interrupt_mask |= 1 << q;
 	else
@@ -1602,7 +1603,7 @@ bool jaldi_hw_resettxqueue(struct jaldi_hw *hw, u32 q)
 	else
 		hw->txurn_interrupt_mask &= ~(1 << q);
 	ath9k_hw_set_txq_interrupts(hw, qi); // TODO
-
+	*/
 	return true;
 }
 
@@ -1622,7 +1623,7 @@ bool jaldi_hw_setrxabort(struct jaldi_hw *hw, bool set)
 			    (AR_DIAG_RX_DIS | AR_DIAG_RX_ABORT));
 
 		if (!jaldi_hw_wait(hw, AR_OBS_BUS_1, AR_OBS_BUS_1_RX_STATE,
-				   0, AH_WAIT_TIMEOUT)) {
+				   0, JALDI_WAIT_TIMEOUT)) {
 			REG_CLR_BIT(hw, AR_DIAG_SW,
 				    (AR_DIAG_RX_DIS |
 				     AR_DIAG_RX_ABORT));
@@ -1655,4 +1656,71 @@ void jaldi_hw_startpcureceive(struct jaldi_hw *hw)
 void jaldi_hw_stoppcurecv(struct jaldi_hw *hw)
 {
 	REG_SET_BIT(hw, AR_DIAG_SW, AR_DIAG_RX_DIS);
+}
+
+/****************/
+/* MAC (ar9002) */
+/****************/
+static void jaldi_hw_fill_txdesc(struct jaldi_hw *hw, struct jaldi_desc *ds, u32 seglen,
+				  bool is_firstseg, bool is_lastseg,
+				  const struct jaldi_desc *ds0, dma_addr_t buf_addr,
+				  unsigned int qcu)
+{
+	struct ar5416_desc *ads = AR5416DESC(ds);
+
+	ads->ds_data = buf_addr;
+
+	if (is_firstseg) {
+		ads->ds_ctl1 |= seglen | (is_lastseg ? 0 : AR_TxMore);
+	} else if (is_lastseg) {
+		ads->ds_ctl0 = 0;
+		ads->ds_ctl1 = seglen;
+		ads->ds_ctl2 = AR5416DESC_CONST(ds0)->ds_ctl2;
+		ads->ds_ctl3 = AR5416DESC_CONST(ds0)->ds_ctl3;
+	} else {
+		ads->ds_ctl0 = 0;
+		ads->ds_ctl1 = seglen | AR_TxMore;
+		ads->ds_ctl2 = 0;
+		ads->ds_ctl3 = 0;
+	}
+	ads->ds_txstatus0 = ads->ds_txstatus1 = 0;
+	ads->ds_txstatus2 = ads->ds_txstatus3 = 0;
+	ads->ds_txstatus4 = ads->ds_txstatus5 = 0;
+	ads->ds_txstatus6 = ads->ds_txstatus7 = 0;
+	ads->ds_txstatus8 = ads->ds_txstatus9 = 0;
+}
+
+static void jaldi_hw_set11n_txdesc(struct jaldi_hw *hw, void *ds,
+				    u32 pktLen, enum jaldi_pkt_type type,
+				    u32 txPower, u32 flags)
+{
+	struct ar5416_desc *ads = AR5416DESC(ds);
+
+	txPower += ah->txpower_indexoffset;
+	if (txPower > 63)
+		txPower = 63;
+
+	ads->ds_ctl0 = (pktLen & AR_FrameLen)
+		| (flags & ATH9K_TXDESC_VMF ? AR_VirtMoreFrag : 0)
+		| SM(txPower, AR_XmitPower)
+		| (flags & ATH9K_TXDESC_VEOL ? AR_VEOL : 0)
+		| (flags & ATH9K_TXDESC_CLRDMASK ? AR_ClrDestMask : 0)
+		| (flags & ATH9K_TXDESC_INTREQ ? AR_TxIntrReq : 0);
+
+	ads->ds_ctl1 =
+		 SM(type, AR_FrameType)
+		| (flags & ATH9K_TXDESC_NOACK ? AR_NoAck : 0)
+		| (flags & ATH9K_TXDESC_EXT_ONLY ? AR_ExtOnly : 0)
+		| (flags & ATH9K_TXDESC_EXT_AND_CTL ? AR_ExtAndCtl : 0);
+
+	/* We only support unencrypted traffic for now. */
+#define JALDI_KEY_TYPE_CLEAR 0
+	ads->ds_ctl6 = SM(JALDI_KEY_TYPE_CLEAR, AR_EncrType);
+
+	if (AR_SREV_9285(ah) || AR_SREV_9271(ah)) {
+		ads->ds_ctl8 = 0;
+		ads->ds_ctl9 = 0;
+		ads->ds_ctl10 = 0;
+		ads->ds_ctl11 = 0;
+	}
 }
