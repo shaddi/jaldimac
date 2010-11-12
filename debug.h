@@ -2,9 +2,7 @@
  * Jaldi Debugging
  * 
  * Todo: 
- * - Currently just a wrapper around printk; what more do we need?
- * - Should be controlled with a config statement, not a bit in the actual 
- *   function call...
+ * - Currently just a wrapper around printk; need to implement some debug level control
  * 
  * Originally based on ath's debug.
  */
@@ -14,7 +12,9 @@
 
 #include "jaldi.h"
 
-enum jaldi_debug_level {
+#define JALDI_DEBUG_ON 1
+
+enum JALDI_DEBUG_LEVEL {
 	JALDI_DEBUG,
 	JALDI_INFO,
 	JALDI_ALERT,

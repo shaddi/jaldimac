@@ -3,15 +3,12 @@
  */
 
 #include "jaldi.h"
-#include "debug.h"
 
-bool debug = 1;
-
-void jaldi_print(int level; const char *fmt, ...)
+void jaldi_print(int level, const char *fmt, ...)
 {
 	va_list args;
 
-	if (likely(!(debug)))
+	if (likely(!(JALDI_DEBUG_ON)))
 		return;
 
 	va_start(args, fmt);

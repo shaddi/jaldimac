@@ -117,6 +117,8 @@ static const struct jaldi_register_ops jaldi_reg_ops = {
 	.write = jaldi_iowrite32,
 };
 
+// TODO: finish this. 
+/* Should set up DMA as well as worker thread to handle setting up queues, etc. */
 int jaldi_tx_init(struct jaldi_softc *sc, int nbufs)
 {
 	
@@ -124,6 +126,24 @@ int jaldi_tx_init(struct jaldi_softc *sc, int nbufs)
 
 	return 0;
 
+}
+
+void jaldi_tx_cleanup(struct jaldi_softc *sc)
+{
+	if (sc->tx.txdma.dd_desc_len != 0)
+		jaldi_descdma_cleanup(sc, &sc->tx.txdma, &sc->tx.txbuf); 
+
+}
+
+void jaldi_descdma_cleanup(struct jaldi_softc *sc, struct jaldi_descdma *dd,
+				struct list_head *head)
+{
+	dma_free_coherent(sc->dev, dd->dd_desc_len, dd->dd_desc,
+				dd->dd_desc_paddr);
+
+	INIT_LIST_HEAD(head);
+	kfree(dd->dd_bufptr);
+	memset(dd, 0, sizeof(*dd));
 }
 /*  From ath9k:
  *  "This function will allocate both the DMA descriptor structure, and the
@@ -168,7 +188,7 @@ int jaldi_descdma_setup(struct jaldi_softc *sc, struct jaldi_descdma *dd,
 	 * descriptors that cross the 4K page boundary. Assume
 	 * one skipped descriptor per 4K page.
 	 */
-	if (!(sc->hw->caps.hw_caps & ATH9K_HW_CAP_4KB_SPLITTRANS)) {
+	if (!(sc->hw->caps.hw_caps & JALDI_HW_CAP_4KB_SPLITTRANS)) {
 		u32 ndesc_skipped =
 			ATH_DESC_4KB_BOUND_NUM_SKIPPED(dd->dd_desc_len);
 		u32 dma_len;
@@ -207,7 +227,7 @@ int jaldi_descdma_setup(struct jaldi_softc *sc, struct jaldi_descdma *dd,
 		bf->bf_daddr = DS2PHYS(dd, ds);
 
 		if (!(sc->hw->caps.hw_caps &
-		      ATH9K_HW_CAP_4KB_SPLITTRANS)) {
+		      JALDI_HW_CAP_4KB_SPLITTRANS)) {
 			/*
 			 * Skip descriptor addresses which can cause 4KB
 			 * boundary crossing (addr + length) with a 32 dword
@@ -246,7 +266,7 @@ static int jaldi_init_queues(struct jaldi_softc *sc)
 		sc->tx.hwq_map[i] = -1;
 
 	
-	if (!jaldi_tx_setup(sc, JALDI_WME_AC_BK)) { // TODO
+	if (!jaldi_tx_setup(sc, JALDI_WME_AC_BK)) { 
 		jaldi_print(JALDI_FATAL,
 			  "Unable to setup xmit queue for BK traffic\n");
 		goto err;
@@ -291,13 +311,14 @@ int jaldi_init_softc(u16 devid, struct jaldi_softc *sc, u16 subsysid, const stru
 
 	spin_lock_init(&sc->sc_resetlock);
 	spin_lock_init(&sc->sc_netdevlock);
+	spin_lock_init(&sc->sc_pm_lock);
 	/* init tasklets and other locks here */
 
 	/* ath9k reads cache line size here... may be relevant */
 	ret = jaldi_hw_init(hw);
 	if (ret) goto err_hw;
 
-	ret = jaldi_init_queues(sc); // TODO
+	ret = jaldi_init_queues(sc);
 	if (ret) goto err_queues;
 	
 err_queues:
@@ -326,8 +347,8 @@ int jaldi_init_device(u16 devid, struct jaldi_softc *sc, u16 subsysid, const str
 	if (error) { goto error_tx; }
 
 	/* Setup RX DMA */
-	error = jaldi_rx_init(sc, JALDI_NUM_RXBUF); // TODO
-	if (error) { goto error_rx; }
+//	error = jaldi_rx_init(sc, JALDI_NUM_RXBUF); // TODO
+//	if (error) { goto error_rx; }
 
 	/* initialize workers here if needed */
 
@@ -342,6 +363,13 @@ error_init:
 	return error;
 }
 
+/* TODO
+ * this is probably similar to ath9k_init_interrupt_masks in ath9k's hw.c
+ */
+int jaldi_init_interrupts(struct jaldi_softc *sc)
+{
+	return 0;
+}
 
 /*****************************/
 /*     De-Initialization     */
@@ -352,8 +380,8 @@ static void jaldi_deinit_softc(struct jaldi_softc *sc)
 	int i = 0;
 
 	for (i = 0; i < JALDI_NUM_TX_QUEUES; i++)
-		if (ATH_TXQ_SETUP(sc, i)) // TODO
-			jaldi_tx_cleanupq(sc, &sc->tx.txq[i]); // TODO
+		if (JALDI_TXQ_SETUP(sc, i))
+			jaldi_tx_cleanupq(sc, &sc->tx.txq[i]);
 
 	jaldi_hw_deinit(sc->hw);
 
@@ -363,10 +391,10 @@ static void jaldi_deinit_softc(struct jaldi_softc *sc)
 
 void jaldi_deinit_device(struct jaldi_softc *sc)
 {
-	jaldi_ps_wakeup(sc); // TODO
+	jaldi_ps_wakeup(sc); 
 
-	jaldi_rx_cleanup(sc); // TODO 
-	jaldi_tx_cleanup(sc); // TODO
+//	jaldi_rx_cleanup(sc); // TODO 
+	jaldi_tx_cleanup(sc); 
 	jaldi_deinit_softc(sc);
 }
 

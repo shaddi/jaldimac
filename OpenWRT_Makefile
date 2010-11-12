@@ -23,9 +23,8 @@ define KernelPackage/jaldi
 	SUBMENU:=$(WMENU)
 	VERSION:=$(LINUX_VERSION)+$(PKG_VERSION)
 	FILES:= \
-		$(PKG_BUILD_DIR)/ath9k_hw.$(LINUX_KMOD_SUFFIX) \
 		$(PKG_BUILD_DIR)/jaldi.$(LINUX_KMOD_SUFFIX)
-	AUTOLOAD:=$(call AutoLoad,27,ath9k_hw jaldi)
+	AUTOLOAD:=$(call AutoLoad,27,jaldi)
 	MENU:=1
 endef
 

@@ -708,9 +708,9 @@ int jaldi_hw_eeprom_init(struct jaldi_hw *hw);
 	 ((_txchainmask >> 1) & 1) + (_txchainmask & 1))
 
 extern const struct eeprom_ops eep_def_ops;
-extern const struct eeprom_ops eep_4k_ops;
-extern const struct eeprom_ops eep_ar9287_ops;
-extern const struct eeprom_ops eep_ar9287_ops;
-extern const struct eeprom_ops eep_ar9300_ops;
+//extern const struct eeprom_ops eep_4k_ops;
+//extern const struct eeprom_ops eep_ar9287_ops;
+//extern const struct eeprom_ops eep_ar9287_ops;
+//extern const struct eeprom_ops eep_ar9300_ops;
 
 #endif /* EEPROM_H */

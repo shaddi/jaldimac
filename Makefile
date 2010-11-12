@@ -4,10 +4,10 @@ jaldi-objs :=  \
 		ahb.o \
 		pci.o \
 		phy.o \
-		hw.o \
-		init.o \
 		eeprom.o \
 		eeprom_def.o \
+		init.o \
+		hw.o \
 		debug.o
 
 PWD :=	$(shell pwd)

@@ -19,6 +19,30 @@
 MODULE_AUTHOR("Shaddi Hasan");
 MODULE_LICENSE("Dual BSD/GPL");
 
+bool jaldi_setpower(struct jaldi_softc *sc, enum jaldi_power_mode mode)
+{
+	unsigned long flags;
+	bool result;
+
+	spin_lock_irqsave(&sc->sc_pm_lock, flags);
+	result = jaldi_hw_setpower(sc->hw, mode);
+	spin_unlock_irqrestore(&sc->sc_pm_lock, flags);
+	return result;
+}
+
+void jaldi_ps_wakeup(struct jaldi_softc *sc)
+{
+	unsigned long flags;
+	spin_lock_irqsave(&sc->sc_pm_lock, flags);
+	if (++sc->ps_usecount != 1)
+		goto unlock;
+
+	jaldi_hw_setpower(sc->hw, JALDI_PM_AWAKE);
+
+ unlock:
+	spin_unlock_irqrestore(&sc->sc_pm_lock, flags);
+}
+
 /* Maintains a priority queue of jaldi_packets to be sent */
 void jaldi_tx_enqueue(struct jaldi_softc *sc, struct jaldi_packet *pkt) {
 	unsigned long flags;
@@ -51,11 +75,6 @@ struct jaldi_packet *jaldi_tx_dequeue(struct jaldi_softc *sc) {
 	return pkt;
 }
 
-void jaldi_tx_cleanupq(struct jaldi_softc *sc, struct jaldi_txq *txq)
-{
-	jaldi_hw_releasetxqueue(sc->hw, txq->axq_qnum);
-	sc->tx.txqsetup &= ~(1<<txq->axq_qnum);
-}
 
 irqreturn_t jaldi_isr(int irq, void *dev)
 {
@@ -113,6 +132,104 @@ void jaldi_rx(struct net_device *dev, struct jaldi_packet *pkt)
   	return;
 }
 
+/******/
+/* TX */
+/******/
+struct jaldi_txq *jaldi_txq_setup(struct jaldi_softc *sc, int qtype, int subtype)
+{
+	struct jaldi_hw *hw = sc->hw;
+	struct jaldi_tx_queue_info qi;
+	int qnum, i;
+
+	memset(&qi, 0, sizeof(qi));
+	qi.tqi_subtype = subtype;
+	qi.tqi_aifs = JALDI_TXQ_USEDEFAULT;
+	qi.tqi_cwmin = JALDI_TXQ_USEDEFAULT;
+	qi.tqi_cwmax = JALDI_TXQ_USEDEFAULT;
+	qi.tqi_physCompBuf = 0;
+
+	/* From ath9k:
+	 * "Enable interrupts only for EOL and DESC conditions.
+	 * We mark tx descriptors to receive a DESC interrupt
+	 * when a tx queue gets deep; otherwise waiting for the
+	 * EOL to reap descriptors.  Note that this is done to
+	 * reduce interrupt load and this only defers reaping
+	 * descriptors, never transmitting frames.  Aside from
+	 * reducing interrupts this also permits more concurrency.
+	 * The only potential downside is if the tx queue backs
+	 * up in which case the top half of the kernel may backup
+	 * due to a lack of tx descriptors.
+	 *
+	 * The UAPSD queue is an exception, since we take a desc-
+	 * based intr on the EOSP frames." (note, we don't have uapsd)
+	 */
+	if (hw->caps.hw_caps & JALDI_HW_CAP_EDMA) {
+		qi.tqi_qflags = TXQ_FLAG_TXOKINT_ENABLE |
+				TXQ_FLAG_TXERRINT_ENABLE;
+	} else {
+		qi.tqi_qflags = TXQ_FLAG_TXEOLINT_ENABLE |
+				TXQ_FLAG_TXDESCINT_ENABLE;
+	}
+	qnum = jaldi_hw_setuptxqueue(hw, qtype, &qi);
+	if (qnum == -1) {
+		/*
+		 * NB: don't print a message, this happens
+		 * normally on parts with too few tx queues
+		 */
+		jaldi_print(JALDI_DEBUG, "txq setup failed.\n"); /* just for debugging... */
+		return NULL;
+	}
+	if (qnum >= ARRAY_SIZE(sc->tx.txq)) {
+		jaldi_print(JALDI_FATAL,
+			  "qnum %u out of range, max %u!\n",
+			  qnum, (unsigned int)ARRAY_SIZE(sc->tx.txq));
+		jaldi_hw_releasetxqueue(hw, qnum);
+		return NULL;
+	}
+	if (!JALDI_TXQ_SETUP(sc, qnum)) {
+		struct jaldi_txq *txq = &sc->tx.txq[qnum];
+
+		txq->axq_qnum = qnum;
+		txq->axq_link = NULL;
+		INIT_LIST_HEAD(&txq->axq_q);
+		INIT_LIST_HEAD(&txq->axq_acq);
+		spin_lock_init(&txq->axq_lock);
+		txq->axq_depth = 0;
+		txq->axq_tx_inprogress = false;
+		sc->tx.txqsetup |= 1<<qnum;
+
+		txq->txq_headidx = txq->txq_tailidx = 0;
+		for (i = 0; i < JALDI_TXFIFO_DEPTH; i++)
+			INIT_LIST_HEAD(&txq->txq_fifo[i]);
+		INIT_LIST_HEAD(&txq->txq_fifo_pending);
+	}
+	return &sc->tx.txq[qnum];
+}
+
+int jaldi_tx_setup(struct jaldi_softc *sc, int haltype)
+{
+	struct jaldi_txq *txq;
+
+	if (haltype >= ARRAY_SIZE(sc->tx.hwq_map)) {
+		jaldi_print(JALDI_FATAL,
+			  "HAL AC %u out of range, max %zu!\n",
+			 haltype, ARRAY_SIZE(sc->tx.hwq_map));
+		return 0;
+	}
+	txq = jaldi_txq_setup(sc, JALDI_TX_QUEUE_DATA, haltype);
+	if (txq != NULL) {
+		sc->tx.hwq_map[haltype] = txq->axq_qnum;
+		return 1;
+	} else
+		return 0;
+}
+
+void jaldi_tx_cleanupq(struct jaldi_softc *sc, struct jaldi_txq *txq)
+{
+	jaldi_hw_releasetxqueue(sc->hw, txq->axq_qnum);
+	sc->tx.txqsetup &= ~(1<<txq->axq_qnum);
+}
+
 int get_jaldi_tx_from_skb(struct sk_buff *skb) {
 	return 0; // TODO: decide on a packet format and implement this by reading protocol header field
 }
@@ -144,7 +261,8 @@ int jaldi_hw_ctl(struct jaldi_softc *sc, struct jaldi_packet *pkt) {
 int jaldi_hw_tx(struct jaldi_softc *sc, struct jaldi_packet *pkt)
 {
 	struct jaldi_buf bf;
-	
+
+	jaldi_print(JALDI_DEBUG,"Entering '__FUNCTION__'\n");
 
 	// TODO: set queue number in hw
 	// bf.txq = softc.txq[qnum];
@@ -198,6 +316,7 @@ int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 	struct jaldi_softc *sc = netdev_priv(dev);
 	struct jaldi_packet *pkt;
 	
+	jaldi_print(JALDI_DEBUG,"Entering '__FUNCTION__'\n");
 	data = skb->data;
 	len = skb->len;
 	
@@ -243,12 +362,14 @@ int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 /* Enable rx interrupts */
 static void jaldi_rx_ints(struct jaldi_softc *sc, int enable)
 {
+	jaldi_print(JALDI_DEBUG,"Entering '__FUNCTION__'\n");
 	sc->rx_int_enabled = enable;
 
 }
 /* Enable tx interrupts */
 static void jaldi_tx_ints(struct jaldi_softc *sc, int enable)
 {
+	jaldi_print(JALDI_DEBUG,"Entering '__FUNCTION__'\n");
 	sc->tx_int_enabled = enable;
 }
 
@@ -281,6 +402,7 @@ void jaldi_init(struct net_device *dev)
 {
 	struct jaldi_softc *sc;
 
+	jaldi_print(JALDI_DEBUG,"Entering '__FUNCTION__'\n");
 	jaldi_print(JALDI_INFO, "jaldi_init start\n");
 
 	ether_setup(dev);
@@ -294,7 +416,7 @@ void jaldi_init(struct net_device *dev)
 
 	sc->net_dev = dev;
 	
-	if(!jaldi_init_interrupts(sc)) {
+	if(jaldi_init_interrupts(sc)) {
 		jaldi_print(JALDI_FATAL, "error initializing interrupt handlers\n");
 		return; 
 	}
@@ -310,6 +432,7 @@ void jaldi_init(struct net_device *dev)
 int jaldi_init_module(void)
 {
 	int result, ret = -ENOMEM;
+	jaldi_print(JALDI_DEBUG,"Entering '__FUNCTION__'\n");
 	jaldi_print(JALDI_DEBUG, "creating netdev...\n");
 	jaldi_dev = alloc_netdev(sizeof(struct jaldi_softc), "jaldi%d", jaldi_init);
 	

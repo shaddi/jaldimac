@@ -262,13 +262,17 @@ int jaldi_hw_eeprom_init(struct jaldi_hw *hw)
 {
 	int status;
 
-	if (AR_SREV_9300_20_OR_LATER(hw))
-		hw->eep_ops = &eep_ar9300_ops;
-	else if (AR_SREV_9287(hw)) {
-		hw->eep_ops = &eep_ar9287_ops;
+	if (AR_SREV_9300_20_OR_LATER(hw)) {
+		jaldi_print(JALDI_DEBUG, "eeprom ar9300\n");
+	//	hw->eep_ops = &eep_ar9300_ops;
+	} else if (AR_SREV_9287(hw)) {
+		jaldi_print(JALDI_DEBUG, "eeprom ar9287\n");
+	//	hw->eep_ops = &eep_ar9287_ops;
 	} else if (AR_SREV_9285(hw) || AR_SREV_9271(hw)) {
-		hw->eep_ops = &eep_4k_ops;
+		jaldi_print(JALDI_DEBUG, "eeprom 4k\n");
+	//	hw->eep_ops = &eep_4k_ops;
 	} else {
+		jaldi_print(JALDI_DEBUG, "eeprom def\n");
 		hw->eep_ops = &eep_def_ops;
 	}
 

@@ -577,13 +577,14 @@ static void jaldi_hw_def_set_addac(struct jaldi_hw *hw,
 		}
 	}
 
+	/* TODO: Revisit this when we look at ini stuff. 
 	if (IS_CHAN_2GHZ(chan)) {
 		INI_RA(&hw->iniAddac, 7, 1) = (INI_RA(&hw->iniAddac,
 					7, 1) & (~0x18)) | biaslevel << 3;
 	} else {
 		INI_RA(&hw->iniAddac, 6, 1) = (INI_RA(&hw->iniAddac,
 					6, 1) & (~0xc0)) | biaslevel << 6;
-	}
+	} */
 #undef XPA_LVL_FREQ
 }
 
@@ -1045,7 +1046,7 @@ static void jaldi_hw_set_def_power_per_rate_table(struct jaldi_hw *hw,
 				  pEepData->modalHeader
 				  [IS_CHAN_2GHZ(chan)].antennaGainCh[2]);
 
-	twiceLargestAntenna = (int16_t)min(AntennaReduction -
+	twiceLargestAntenna = (int16_t)max(AntennaReduction -
 					   twiceLargestAntenna, 0);
 
 	maxRegAllowedPower = twiceMaxRegulatoryPower + twiceLargestAntenna;
@@ -1427,13 +1428,13 @@ static u16 jaldi_hw_def_get_spur_channel(struct jaldi_hw *hw, u16 i, bool is2GHz
 
 	jaldi_print(JALDI_DEBUG,
 		  "Getting spur idx %d is2Ghz. %d val %x\n",
-		  i, is2GHz, hw->config.spurchans[i][is2GHz]);
+		  i, is2GHz, hw->spurchans[i][is2GHz]);
 
-	switch (hw->config.spurmode) {
+	switch (hw->spurmode) {
 	case SPUR_DISABLE:
 		break;
 	case SPUR_ENABLE_IOCTL:
-		spur_val = hw->config.spurchans[i][is2GHz];
+		spur_val = hw->spurchans[i][is2GHz];
 		jaldi_print(JALDI_DEBUG,
 			  "Getting spur val from new loc. %d\n", spur_val);
 		break;

@@ -379,6 +379,184 @@ static void jaldi_hw_do_getnf(struct jaldi_hw *hw,
 	}
 }
 
+static void ar5008_hw_set_rfmode(struct jaldi_hw *hw, struct jaldi_channel *chan)
+{
+	u32 rfMode = 0;
+
+	if (chan == NULL)
+		return;
+
+	rfMode |= (IS_CHAN_B(chan) || IS_CHAN_G(chan))
+		? AR_PHY_MODE_DYNAMIC : AR_PHY_MODE_OFDM;
+
+	if (!AR_SREV_9280_10_OR_LATER(hw))
+		rfMode |= (IS_CHAN_5GHZ(chan)) ?
+			AR_PHY_MODE_RF5GHZ : AR_PHY_MODE_RF2GHZ;
+
+	if (IS_CHAN_A_FAST_CLOCK(hw, chan))
+		rfMode |= (AR_PHY_MODE_DYNAMIC | AR_PHY_MODE_DYN_CCK_DISABLE);
+
+	REG_WRITE(hw, AR_PHY_MODE, rfMode);
+}
+
+static u32 ar9002_hw_compute_pll_control(struct jaldi_hw *hw,
+					 struct jaldi_channel *chan)
+{
+	u32 pll;
+
+	pll = SM(0x5, AR_RTC_9160_PLL_REFDIV);
+
+	if (chan && IS_CHAN_HALF_RATE(chan))
+		pll |= SM(0x1, AR_RTC_9160_PLL_CLKSEL);
+	else if (chan && IS_CHAN_QUARTER_RATE(chan))
+		pll |= SM(0x2, AR_RTC_9160_PLL_CLKSEL);
+
+	if (chan && IS_CHAN_5GHZ(chan)) {
+		if (IS_CHAN_A_FAST_CLOCK(hw, chan))
+			pll = 0x142c;
+		else if (AR_SREV_9280_20(hw))
+			pll = 0x2850;
+		else
+			pll |= SM(0x28, AR_RTC_9160_PLL_DIV);
+	} else {
+		pll |= SM(0x2c, AR_RTC_9160_PLL_DIV);
+	}
+
+	return pll;
+}
+
+static u32 ar9100_hw_compute_pll_control(struct jaldi_hw *hw,
+					 struct jaldi_channel *chan)
+{
+	if (chan && IS_CHAN_5GHZ(chan))
+		return 0x1450;
+	return 0x1458;
+}
+
+static u32 ar9160_hw_compute_pll_control(struct jaldi_hw *hw,
+					 struct jaldi_channel *chan)
+{
+	u32 pll;
+
+	pll = SM(0x5, AR_RTC_9160_PLL_REFDIV);
+
+	if (chan && IS_CHAN_HALF_RATE(chan))
+		pll |= SM(0x1, AR_RTC_9160_PLL_CLKSEL);
+	else if (chan && IS_CHAN_QUARTER_RATE(chan))
+		pll |= SM(0x2, AR_RTC_9160_PLL_CLKSEL);
+
+	if (chan && IS_CHAN_5GHZ(chan))
+		pll |= SM(0x50, AR_RTC_9160_PLL_DIV);
+	else
+		pll |= SM(0x58, AR_RTC_9160_PLL_DIV);
+
+	return pll;
+}
+
+static u32 ar5008_hw_compute_pll_control(struct jaldi_hw *hw,
+					 struct jaldi_channel *chan)
+{
+	u32 pll;
+
+	pll = AR_RTC_PLL_REFDIV_5 | AR_RTC_PLL_DIV2;
+
+	if (chan && IS_CHAN_HALF_RATE(chan))
+		pll |= SM(0x1, AR_RTC_PLL_CLKSEL);
+	else if (chan && IS_CHAN_QUARTER_RATE(chan))
+		pll |= SM(0x2, AR_RTC_PLL_CLKSEL);
+
+	if (chan && IS_CHAN_5GHZ(chan))
+		pll |= SM(0xa, AR_RTC_PLL_DIV);
+	else
+		pll |= SM(0xb, AR_RTC_PLL_DIV);
+
+	return pll;
+}
+
+static void ar9002_olc_init(struct jaldi_hw *hw)
+{
+	u32 i;
+
+	if (!OLC_FOR_AR9280_20_LATER)
+		return;
+
+	if (OLC_FOR_AR9287_10_LATER) {
+		REG_SET_BIT(hw, AR_PHY_TX_PWRCTRL9,
+				AR_PHY_TX_PWRCTRL9_RES_DC_REMOVAL);
+		jaldi_hw_analog_shift_rmw(hw, AR9287_AN_TXPC0,
+				AR9287_AN_TXPC0_TXPCMODE,
+				AR9287_AN_TXPC0_TXPCMODE_S,
+				AR9287_AN_TXPC0_TXPCMODE_TEMPSENSE);
+		udelay(100);
+	} else {
+		for (i = 0; i < AR9280_TX_GAIN_TABLE_SIZE; i++)
+			hw->originalGain[i] =
+				MS(REG_READ(hw, AR_PHY_TX_GAIN_TBL1 + i * 4),
+						AR_PHY_TX_GAIN);
+		hw->PDADCdelta = 0;
+	}
+}
+
+static void ar5008_hw_set_channel_regs(struct jaldi_hw *hw,
+				       struct jaldi_channel *chan)
+{
+	u32 phymode;
+	u32 macmode;
+	u32 enableDacFifo = 0;
+
+	if (AR_SREV_9285_10_OR_LATER(hw))
+		enableDacFifo = (REG_READ(hw, AR_PHY_TURBO) &
+					 AR_PHY_FC_ENABLE_DAC_FIFO);
+
+	phymode = AR_PHY_FC_HT_EN | AR_PHY_FC_SHORT_GI_40
+		| AR_PHY_FC_SINGLE_HT_LTF1 | AR_PHY_FC_WALSH | enableDacFifo;
+
+	if (IS_CHAN_HT40(chan)) {
+		phymode |= AR_PHY_FC_DYN2040_EN;
+
+		if ((chan->chanmode == CHANNEL_A_HT40PLUS) ||
+		    (chan->chanmode == CHANNEL_G_HT40PLUS))
+			phymode |= AR_PHY_FC_DYN2040_PRI_CH;
+
+	}
+	REG_WRITE(hw, AR_PHY_TURBO, phymode);
+
+	if(IS_CHAN_HT40(chan)) 
+		macmode = AR_2040_JOINED_RX_CLEAR;
+	else
+		macmode = 0;
+
+	REG_WRITE(hw, AR_2040_MODE, macmode);
+
+	ENABLE_REGWRITE_BUFFER(hw);
+
+	REG_WRITE(hw, AR_GTXTO, 25 << AR_GTXTO_TIMEOUT_LIMIT_S);
+	REG_WRITE(hw, AR_CST, 0xF << AR_CST_TIMEOUT_LIMIT_S);
+
+	REGWRITE_BUFFER_FLUSH(hw);
+	DISABLE_REGWRITE_BUFFER(hw);
+}
+
+static bool ar5008_hw_rfbus_req(struct jaldi_hw *hw)
+{
+	REG_WRITE(hw, AR_PHY_RFBUS_REQ, AR_PHY_RFBUS_REQ_EN);
+	return jaldi_hw_wait(hw, AR_PHY_RFBUS_GRANT, AR_PHY_RFBUS_GRANT_EN,
+			   AR_PHY_RFBUS_GRANT_EN, JALDI_WAIT_TIMEOUT);
+}
+
+static void ar5008_hw_rfbus_done(struct jaldi_hw *hw)
+{
+	u32 synthDelay = REG_READ(hw, AR_PHY_RX_DELAY) & AR_PHY_RX_DELAY_DELAY;
+	if (IS_CHAN_B(hw->curchan))
+		synthDelay = (4 * synthDelay) / 22;
+	else
+		synthDelay /= 10;
+
+	udelay(synthDelay + BASE_ACTIVATE_DELAY);
+
+	REG_WRITE(hw, AR_PHY_RFBUS_REQ, 0);
+}
+
 void jaldi_hw_attach_phy_ops(struct jaldi_hw *hw)
 {
 	struct jaldi_hw_ops *ops = hw->ops;
@@ -386,6 +564,20 @@ void jaldi_hw_attach_phy_ops(struct jaldi_hw *hw)
 	ops->rf_set_freq = jaldi_hw_set_freq;
 	ops->spur_mitigate_freq = jaldi_hw_spur_mitigate;
 	ops->do_getnf = jaldi_hw_do_getnf;
+	ops->set_rfmode = ar5008_hw_set_rfmode;
+	ops->olc_init = ar9002_olc_init;
+	ops->rfbus_done = ar5008_hw_rfbus_done;
+	ops->rfbus_req = ar5008_hw_rfbus_req;
+	ops->set_channel_regs = ar5008_hw_set_channel_regs;
+
+	if (AR_SREV_9280_10_OR_LATER(hw))
+		ops->compute_pll_control = ar9002_hw_compute_pll_control;
+	else if (AR_SREV_9100(hw))
+		ops->compute_pll_control = ar9100_hw_compute_pll_control;
+	else if (AR_SREV_9160_10_OR_LATER(hw))
+		ops->compute_pll_control = ar9160_hw_compute_pll_control;
+	else
+		ops->compute_pll_control = ar5008_hw_compute_pll_control;
 	
 }
 

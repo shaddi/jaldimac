@@ -43,6 +43,8 @@
 #define POWER_UP_TIME			10000
 #define SPUR_RSSI_THRESH		40
 
+#define MAX_RATE_POWER			63
+
 #define JALDI_CLOCK_RATE_CCK		22
 #define JALDI_CLOCK_RATE_5GHZ_OFDM	40
 #define JALDI_CLOCK_RATE_2GHZ_OFDM	44
@@ -143,6 +145,19 @@
 	 CHANNEL_HT40PLUS |			\
 	 CHANNEL_HT40MINUS)
 
+#define IS_CHAN_G(_c) ((((_c)->channelFlags & (CHANNEL_G)) == CHANNEL_G) || \
+       (((_c)->channelFlags & CHANNEL_G_HT20) == CHANNEL_G_HT20) || \
+       (((_c)->channelFlags & CHANNEL_G_HT40PLUS) == CHANNEL_G_HT40PLUS) || \
+       (((_c)->channelFlags & CHANNEL_G_HT40MINUS) == CHANNEL_G_HT40MINUS))
+#define IS_CHAN_OFDM(_c) (((_c)->channelFlags & CHANNEL_OFDM) != 0)
+#define IS_CHAN_5GHZ(_c) (((_c)->channelFlags & CHANNEL_5GHZ) != 0)
+#define IS_CHAN_2GHZ(_c) (((_c)->channelFlags & CHANNEL_2GHZ) != 0)
+#define IS_CHAN_HALF_RATE(_c) (((_c)->channelFlags & CHANNEL_HALF) != 0)
+#define IS_CHAN_QUARTER_RATE(_c) (((_c)->channelFlags & CHANNEL_QUARTER) != 0)
+#define IS_CHAN_A_FAST_CLOCK(_hw, _c)			\
+	((((_c)->channelFlags & CHANNEL_5GHZ) != 0) &&	\
+	 ((_hw)->caps.hw_caps & JALDI_HW_CAP_FASTCLOCK))
+
 /* Macros for checking chanmode */
 #define IS_CHAN_5GHZ(_c) (((_c)->channelFlags & CHANNEL_5GHZ) != 0)
 #define IS_CHAN_2GHZ(_c) (((_c)->channelFlags & CHANNEL_2GHZ) != 0)
@@ -150,9 +165,15 @@
 #define IS_CHAN_HT20(_c) (((_c)->chanmode == CHANNEL_HT20)) 
 #define IS_CHAN_HT40(_c) (((_c)->chanmode == CHANNEL_HT40PLUS) || \
 			  ((_c)->chanmode == CHANNEL_HT40MINUS))
-
+#define IS_CHAN_HT(_c) (IS_CHAN_HT20((_c)) || IS_CHAN_HT40((_c)))
 
 #define BASE_ACTIVATE_DELAY     100
+#define RTC_PLL_SETTLE_DELAY    100
+#define INIT_CONFIG_STATUS      0x00000000
+#define INIT_RSSI_THR           0x00000700
+
+#define JALDI_HW_RX_HP_QDEPTH	16
+#define JALDI_HW_RX_LP_QDEPTH	128
 
 #define SPUR_DISABLE        	0
 #define SPUR_ENABLE_IOCTL   	1
@@ -352,7 +373,6 @@ struct jaldi_hw_capabilities {
 	u32 hw_caps; /* JALDI_HW_CAP_* from jaldi_hw_caps */
 	DECLARE_BITMAP(wireless_modes, JALDI_MODE_MAX); /* JALDI_MODE_* */
 	u16 total_queues;
-	u16 keycache_size;
 	u16 low_5ghz_chan, high_5ghz_chan;
 	u16 low_2ghz_chan, high_2ghz_chan;
 	u16 rts_aggr_limit;
@@ -405,6 +425,13 @@ struct jaldi_hw_ops {
 	void (*spur_mitigate_freq)(struct jaldi_hw *hw,
 				   struct jaldi_channel *chan);
 	void (*do_getnf)(struct jaldi_hw *hw, int16_t nfarray[NUM_NF_READINGS]);
+	u32 (*compute_pll_control)(struct jaldi_hw *hw,
+				   struct jaldi_channel *chan);
+	void (*set_rfmode)(struct jaldi_hw *hw, struct jaldi_channel *chan);
+	void (*olc_init)(struct jaldi_hw *hw);
+	void (*rfbus_done)(struct jaldi_hw *hw);
+	bool (*rfbus_req)(struct jaldi_hw *hw);
+	void (*set_channel_regs)(struct jaldi_hw *hw, struct jaldi_channel *chan);
 };
 
 struct jaldi_hw {
@@ -423,6 +450,7 @@ struct jaldi_hw {
 	u16 rfsilent;
 	u32 rfkill_gpio;
 	u32 rfkill_polarity;
+	bool need_an_top2_fixup;
 
 	union {
 		struct ar5416_eeprom_def def;
@@ -449,6 +477,12 @@ struct jaldi_hw {
 	u8 txchainmask;
 	u8 rxchainmask;
 
+	/* Gain stuff (olc) */
+	u32 originalGain[22];
+	int initPDADC;
+	int PDADCdelta;
+
+	enum jaldi_intr_type imask; /* the interrupts we care about */
 	bool chip_fullsleep;
 
 	struct jaldi_tx_queue_info txq[JALDI_NUM_TX_QUEUES];
@@ -463,6 +497,7 @@ struct jaldi_hw {
 	u16 tx_trig_level;
 	u8 analog_shiftreg;
 	int spurmode;
+	u16 spurchans[AR_EEPROM_MODAL_SPURS][2];
 
 	/* functions to control hw */
 	struct jaldi_hw_ops *ops;

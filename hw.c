@@ -305,6 +305,229 @@ static void jaldi_hw_restore_chainmask(struct jaldi_hw *hw)
 	}
 }
 
+/************************************/
+/* HW Attach, Detach, Init Routines */
+/************************************/
+static void jaldi_hw_disablepcie(struct jaldi_hw *hw)
+{
+	if (AR_SREV_9100(hw))
+		return;
+
+	ENABLE_REGWRITE_BUFFER(hw);
+
+	REG_WRITE(hw, AR_PCIE_SERDES, 0x9248fc00);
+	REG_WRITE(hw, AR_PCIE_SERDES, 0x24924924);
+	REG_WRITE(hw, AR_PCIE_SERDES, 0x28000029);
+	REG_WRITE(hw, AR_PCIE_SERDES, 0x57160824);
+	REG_WRITE(hw, AR_PCIE_SERDES, 0x25980579);
+	REG_WRITE(hw, AR_PCIE_SERDES, 0x00000000);
+	REG_WRITE(hw, AR_PCIE_SERDES, 0x1aaabe40);
+	REG_WRITE(hw, AR_PCIE_SERDES, 0xbe105554);
+	REG_WRITE(hw, AR_PCIE_SERDES, 0x000e1007);
+
+	REG_WRITE(hw, AR_PCIE_SERDES2, 0x00000000);
+
+	REGWRITE_BUFFER_FLUSH(hw);
+	DISABLE_REGWRITE_BUFFER(hw);
+}
+
+/* This should work for all families including legacy */
+static bool jaldi_hw_chip_test(struct jaldi_hw *hw)
+{
+	u32 regAddr[2] = { AR_STA_ID0 };
+	u32 regHold[2];
+	u32 patternData[4] = { 0x55555555,
+			       0xaaaaaaaa,
+			       0x66666666,
+			       0x99999999 };
+	int i, j, loop_max;
+
+	if (!AR_SREV_9300_20_OR_LATER(hw)) {
+		loop_max = 2;
+		regAddr[1] = AR_PHY_BASE + (8 << 2);
+	} else
+		loop_max = 1;
+
+	for (i = 0; i < loop_max; i++) {
+		u32 addr = regAddr[i];
+		u32 wrData, rdData;
+
+		regHold[i] = REG_READ(hw, addr);
+		for (j = 0; j < 0x100; j++) {
+			wrData = (j << 16) | j;
+			REG_WRITE(hw, addr, wrData);
+			rdData = REG_READ(hw, addr);
+			if (rdData != wrData) {
+				jaldi_print(JALDI_FATAL,
+					  "address test failed "
+					  "addr: 0x%08x - wr:0x%08x != "
+					  "rd:0x%08x\n",
+					  addr, wrData, rdData);
+				return false;
+			}
+		}
+		for (j = 0; j < 4; j++) {
+			wrData = patternData[j];
+			REG_WRITE(hw, addr, wrData);
+			rdData = REG_READ(hw, addr);
+			if (wrData != rdData) {
+				jaldi_print(JALDI_FATAL,
+					  "address test failed "
+					  "addr: 0x%08x - wr:0x%08x != "
+					  "rd:0x%08x\n",
+					  addr, wrData, rdData);
+				return false;
+			}
+		}
+		REG_WRITE(hw, regAddr[i], regHold[i]);
+	}
+	udelay(100);
+
+	return true;
+}
+
+static void jaldi_hw_init_config(struct jaldi_hw *hw)
+{ 
+	hw->analog_shiftreg = 1;
+
+	if (hw->hw_version.devid != AR2427_DEVID_PCIE)
+		hw->ht_enable = 1;
+	else 
+		hw->ht_enable = 0;
+
+	/* From ath9k:
+	 * "We need this for PCI devices only (Cardbus, PCI, miniPCI)
+	 * _and_ if on non-uniprocessor systems (Multiprocessor/HT).
+	 * This means we use it for all AR5416 devices, and the few
+	 * minor PCI AR9280 devices out there.
+	 *
+	 * Serialization is required because these devices do not handle
+	 * well the case of two concurrent reads/writes due to the latency
+	 * involved. During one read/write another read/write can be issued
+	 * on another CPU while the previous read/write may still be working
+	 * on our hardware, if we hit this case the hardware poops in a loop.
+	 * We prevent this by serializing reads and writes.
+	 *
+	 * This issue is not present on PCI-Express devices or pre-AR5416
+	 * devices (legacy, 802.11abg)."
+	 */
+	if (num_possible_cpus() > 1)
+		hw->serialize_regmode = SER_REG_MODE_AUTO;
+}
+
+void jaldi_hw_deinit(struct jaldi_hw *hw) 
+{
+	if (hw->dev_state < JALDI_HW_INITIALIZED) return;
+
+	jaldi_hw_setpower(hw, JALDI_PM_FULL_SLEEP);
+}
+
+static void jaldi_hw_setslottime(struct jaldi_hw *hw, u32 us)
+{
+	u32 val = jaldi_hw_mac_to_clks(hw, us);
+	val = min(val, (u32) 0xFFFF);
+	REG_WRITE(hw, AR_D_GBL_IFS_SLOT, val);
+}
+
+static void jaldi_hw_set_ack_timeout(struct jaldi_hw *hw, u32 us)
+{
+	u32 val = jaldi_hw_mac_to_clks(hw, us);
+	val = min(val, (u32) MS(0xFFFFFFFF, AR_TIME_OUT_ACK));
+	REG_RMW_FIELD(hw, AR_TIME_OUT, AR_TIME_OUT_ACK, val);
+}
+
+static void jaldi_hw_set_cts_timeout(struct jaldi_hw *hw, u32 us)
+{
+	u32 val = jaldi_hw_mac_to_clks(hw, us);
+	val = min(val, (u32) MS(0xFFFFFFFF, AR_TIME_OUT_CTS));
+	REG_RMW_FIELD(hw, AR_TIME_OUT, AR_TIME_OUT_CTS, val);
+}
+
+static bool jaldi_hw_set_global_txtimeout(struct jaldi_hw *hw, u32 tu)
+{
+	if (tu > 0xFFFF) {
+		jaldi_print(JALDI_DEBUG,
+			  "bad global tx timeout %u\n", tu);
+		hw->globaltxtimeout = (u32) -1;
+		return false;
+	} else {
+		REG_RMW_FIELD(hw, AR_GTXTO, AR_GTXTO_TIMEOUT_LIMIT, tu);
+		hw->globaltxtimeout = tu;
+		return true;
+	}
+}
+
+void jaldi_hw_init_global_settings(struct jaldi_hw *hw)
+{
+	int acktimeout;
+	int slottime;
+	int ifstime;
+
+	// TODO: set default ifs and slot times
+	ifstime = hw->ifstime;
+	slottime = hw->slottime;
+	acktimeout = slottime + ifstime; // TODO: is this what we want? may want to disable acktimeouts to handle at higher level.
+
+	jaldi_hw_setslottime(hw, slottime);
+	jaldi_hw_set_ack_timeout(hw, acktimeout);
+	jaldi_hw_set_cts_timeout(hw, acktimeout);
+	if (hw->globaltxtimeout != (u32) -1)
+		jaldi_hw_set_global_txtimeout(hw, hw->globaltxtimeout);
+}
+
+static void jaldi_hw_init_defaults(struct jaldi_hw *hw)
+{
+	hw->hw_version.magic = AR5416_MAGIC;
+	hw->hw_version.subvendorid = 0;
+
+	hw->hw_flags = 0;
+	if (!AR_SREV_9100(hw)) { hw->hw_flags = AH_USE_EEPROM; }
+
+	hw->slottime = (u32) -1;
+	hw->ifstime = (u32) -1;
+	hw->globaltxtimeout = (u32) -1;
+	hw->power_mode = JALDI_PM_UNDEFINED;
+}
+
+static int jaldi_hw_init_macaddr(struct jaldi_hw *hw) {
+	
+	struct jaldi_softc *sc = hw->sc;
+	u32 sum; 
+	int i;
+	u16 eeval;
+	u32 EEP_MAC[] = { EEP_MAC_LSW, EEP_MAC_MID, EEP_MAC_MSW };
+
+	sum = 0;
+	for (i = 0; i < 3; i++) {
+		eeval = hw->eep_ops->get_eeprom(hw, EEP_MAC[i]);
+		sum += eeval;
+		sc->macaddr[2 * i] = eeval >> 8;
+		sc->macaddr[2 * i + 1] = eeval & 0xff;
+	}
+	if (sum == 0 || sum == 0xffff * 3)
+		return -EADDRNOTAVAIL;
+
+	return 0;
+}
+
+static void jaldi_hw_init_pll(struct jaldi_hw *hw,
+			      struct jaldi_channel *chan)
+{
+	u32 pll = hw->ops->compute_pll_control(hw, chan);
+
+	REG_WRITE(hw, AR_RTC_PLL_CONTROL, pll);
+
+	/* Switch the core clock for ar9271 to 117Mhz */
+	if (AR_SREV_9271(hw)) {
+		udelay(500);
+		REG_WRITE(hw, 0x50040, 0x304);
+	}
+
+	udelay(RTC_PLL_SETTLE_DELAY);
+
+	REG_WRITE(hw, AR_RTC_SLEEP_CLK, AR_RTC_FORCE_DERIVED_CLK);
+}
+
 /**********************************/
 /* Hw Reset and Channel Switching */
 /**********************************/
@@ -502,12 +725,63 @@ static bool jaldi_hw_chip_reset(struct jaldi_hw *hw,
 		return false;
 
 	hw->chip_fullsleep = false;
-	jaldi_hw_init_pll(hw, chan); // TODO
-	jaldi_hw_set_rfmode(hw, chan); // TODO
+	jaldi_hw_init_pll(hw, chan);
+	hw->ops->set_rfmode(hw, chan);
 
 	return true;
 }
 
+static bool jaldi_hw_channel_change(struct jaldi_hw *hw,
+				    struct jaldi_channel *chan)
+{
+	u32 qnum;
+	int r;
+
+	for (qnum = 0; qnum < AR_NUM_QCU; qnum++) {
+		if (jaldi_hw_numtxpending(hw, qnum)) {
+			jaldi_print(JALDI_ALERT,
+				  "Transmit frames pending on "
+				  "queue %d\n", qnum);
+			return false;
+		}
+	}
+
+	if (!hw->ops->rfbus_req(hw)) {
+		jaldi_print(JALDI_FATAL,
+			  "Could not kill baseband RX\n");
+		return false;
+	}
+
+	hw->ops->set_channel_regs(hw, chan);
+
+	r = hw->ops->rf_set_freq(hw, chan);
+	if (r) {
+		jaldi_print(JALDI_FATAL,
+			  "Failed to set channel\n");
+		return false;
+	}
+
+	hw->eep_ops->set_txpower(hw, chan,
+			     0x01ff, /* see regd.h NO_CTL in ath for details, this is DEBUG_REG_DMN */
+	//		     channel->max_antenna_gain * 2,
+	//		     channel->max_power * 2,
+				0, 0,	// TODO: what should these values be?
+			     (u32) MAX_RATE_POWER);
+
+	hw->ops->rfbus_done(hw);
+
+	if (IS_CHAN_OFDM(chan) || IS_CHAN_HT(chan))
+//		ath9k_hw_set_delta_slope(hw, chan); // TODO
+
+	hw->ops->spur_mitigate_freq(hw, chan);
+
+	/* TODO: we're not doing calibration yet.
+	if (!chan->oneTimeCalsDone)
+		chan->oneTimeCalsDone = true;
+	*/
+
+	return true;
+}
 
 static bool jaldi_hw_reset(struct jaldi_hw *hw, struct jaldi_channel *chan,
 				bool bChannelChange) {
@@ -525,7 +799,7 @@ static bool jaldi_hw_reset(struct jaldi_hw *hw, struct jaldi_channel *chan,
 	struct jaldi_channel *curchan = hw->curchan;
 
 	if(!hw->chip_fullsleep) {
-		jaldi_hw_abortpcurecv(hw); // TODO
+		jaldi_hw_abortpcurecv(hw); 
 		if(!jaldi_hw_stopdmarecv(hw)) 
 			{ jaldi_print(0,"Failed to stop recv dma\n"); }
 	}
@@ -535,7 +809,7 @@ static bool jaldi_hw_reset(struct jaldi_hw *hw, struct jaldi_channel *chan,
 		return -EIO;
 
 	if (curchan && !hw->chip_fullsleep)
-		jaldi_hw_getnf(hw, curchan); // TODO
+//		jaldi_hw_getnf(hw, curchan); // TODO
 	
 
 	// load new noise floor info if we're changing the channel
@@ -547,10 +821,10 @@ static bool jaldi_hw_reset(struct jaldi_hw *hw, struct jaldi_channel *chan,
 	     (hw->curchan->channelFlags & CHANNEL_ALL)) &&
 	    !AR_SREV_9280(hw)) {
 
-		if (jaldi_hw_channel_change(hw, chan)) { // TODO
+		if (jaldi_hw_channel_change(hw, chan)) {
 		// loadnf seems to only be implemented for ar9003
 		//	jaldi_hw_loadnf(hw, hw->curchan); 
-			jaldi_hw_start_nfcal(hw);
+		//	jaldi_hw_start_nfcal(hw); // TODO
 			return 0;
 		}
 	}
@@ -596,7 +870,7 @@ static bool jaldi_hw_reset(struct jaldi_hw *hw, struct jaldi_channel *chan,
 	if (!AR_SREV_9300_20_OR_LATER(hw))
 		jaldi_hw_enable_async_fifo(hw);
 
-	jaldi_hw_spur_mitigate_freq(hw, chan);
+	hw->ops->spur_mitigate_freq(hw, chan);
 	hw->eep_ops->set_board_values(hw, chan);
 
 	jaldi_hw_set_operating_mode(hw, hw->opmode); // initially set in main
@@ -630,7 +904,7 @@ static bool jaldi_hw_reset(struct jaldi_hw *hw, struct jaldi_channel *chan,
 
 	hw->intr_txqs = 0;
 	for (i = 0; i < hw->caps.total_queues; i++)
-		jaldi_hw_resettxqueue(hw, i); // TODO
+		jaldi_hw_resettxqueue(hw, i);
 
 	//ath9k_hw_init_interrupt_masks(ah, ah->opmode); // TODO
 	//ath9k_hw_init_qos(ah); //TODO
@@ -729,7 +1003,7 @@ static bool jaldi_hw_set_power_awake(struct jaldi_hw *hw, int setChip)
 				return false;
 			}
 			if (!AR_SREV_9300_20_OR_LATER(hw))
-				jaldi_hw_init_pll(hw, NULL); // TODO
+				jaldi_hw_init_pll(hw, NULL);
 		}
 		if (AR_SREV_9100(hw))
 			REG_SET_BIT(hw, AR_RTC_RESET,
@@ -818,214 +1092,6 @@ bool jaldi_hw_setpower(struct jaldi_hw *hw, enum jaldi_power_mode mode)
 	return status;
 }
 
-/************************************/
-/* HW Attach, Detach, Init Routines */
-/************************************/
-static void jaldi_hw_disablepcie(struct jaldi_hw *hw)
-{
-	if (AR_SREV_9100(hw))
-		return;
-
-	ENABLE_REGWRITE_BUFFER(hw);
-
-	REG_WRITE(hw, AR_PCIE_SERDES, 0x9248fc00);
-	REG_WRITE(hw, AR_PCIE_SERDES, 0x24924924);
-	REG_WRITE(hw, AR_PCIE_SERDES, 0x28000029);
-	REG_WRITE(hw, AR_PCIE_SERDES, 0x57160824);
-	REG_WRITE(hw, AR_PCIE_SERDES, 0x25980579);
-	REG_WRITE(hw, AR_PCIE_SERDES, 0x00000000);
-	REG_WRITE(hw, AR_PCIE_SERDES, 0x1aaabe40);
-	REG_WRITE(hw, AR_PCIE_SERDES, 0xbe105554);
-	REG_WRITE(hw, AR_PCIE_SERDES, 0x000e1007);
-
-	REG_WRITE(hw, AR_PCIE_SERDES2, 0x00000000);
-
-	REGWRITE_BUFFER_FLUSH(hw);
-	DISABLE_REGWRITE_BUFFER(hw);
-}
-
-/* This should work for all families including legacy */
-static bool jaldi_hw_chip_test(struct jaldi_hw *hw)
-{
-	u32 regAddr[2] = { AR_STA_ID0 };
-	u32 regHold[2];
-	u32 patternData[4] = { 0x55555555,
-			       0xaaaaaaaa,
-			       0x66666666,
-			       0x99999999 };
-	int i, j, loop_max;
-
-	if (!AR_SREV_9300_20_OR_LATER(hw)) {
-		loop_max = 2;
-		regAddr[1] = AR_PHY_BASE + (8 << 2);
-	} else
-		loop_max = 1;
-
-	for (i = 0; i < loop_max; i++) {
-		u32 addr = regAddr[i];
-		u32 wrData, rdData;
-
-		regHold[i] = REG_READ(hw, addr);
-		for (j = 0; j < 0x100; j++) {
-			wrData = (j << 16) | j;
-			REG_WRITE(hw, addr, wrData);
-			rdData = REG_READ(hw, addr);
-			if (rdData != wrData) {
-				jaldi_print(JALDI_FATAL,
-					  "address test failed "
-					  "addr: 0x%08x - wr:0x%08x != "
-					  "rd:0x%08x\n",
-					  addr, wrData, rdData);
-				return false;
-			}
-		}
-		for (j = 0; j < 4; j++) {
-			wrData = patternData[j];
-			REG_WRITE(hw, addr, wrData);
-			rdData = REG_READ(hw, addr);
-			if (wrData != rdData) {
-				jaldi_print(JALDI_FATAL,
-					  "address test failed "
-					  "addr: 0x%08x - wr:0x%08x != "
-					  "rd:0x%08x\n",
-					  addr, wrData, rdData);
-				return false;
-			}
-		}
-		REG_WRITE(hw, regAddr[i], regHold[i]);
-	}
-	udelay(100);
-
-	return true;
-}
-
-static void jaldi_hw_init_config(struct jaldi_hw *hw)
-{ 
-	hw->analog_shiftreg = 1;
-
-	if (hw->hw_version.devid != AR2427_DEVID_PCIE)
-		hw->ht_enable = 1;
-	else 
-		hw->ht_enable = 0;
-
-	/* From ath9k:
-	 * "We need this for PCI devices only (Cardbus, PCI, miniPCI)
-	 * _and_ if on non-uniprocessor systems (Multiprocessor/HT).
-	 * This means we use it for all AR5416 devices, and the few
-	 * minor PCI AR9280 devices out there.
-	 *
-	 * Serialization is required because these devices do not handle
-	 * well the case of two concurrent reads/writes due to the latency
-	 * involved. During one read/write another read/write can be issued
-	 * on another CPU while the previous read/write may still be working
-	 * on our hardware, if we hit this case the hardware poops in a loop.
-	 * We prevent this by serializing reads and writes.
-	 *
-	 * This issue is not present on PCI-Express devices or pre-AR5416
-	 * devices (legacy, 802.11abg)."
-	 */
-	if (num_possible_cpus() > 1)
-		hw->serialize_regmode = SER_REG_MODE_AUTO;
-}
-
-}
-
-void jaldi_hw_deinit(struct jaldi_hw *hw) 
-{
-	if (hw->dev_state < JALDI_HW_INITIALIZED) return;
-
-	jaldi_hw_setpower(hw, JALDI_PM_FULL_SLEEP);
-}
-
-static void jaldi_hw_setslottime(struct jaldi_hw *hw, u32 us)
-{
-	u32 val = jaldi_hw_mac_to_clks(hw, us);
-	val = min(val, (u32) 0xFFFF);
-	REG_WRITE(hw, AR_D_GBL_IFS_SLOT, val);
-}
-
-static void jaldi_hw_set_ack_timeout(struct jaldi_hw *hw, u32 us)
-{
-	u32 val = jaldi_hw_mac_to_clks(hw, us);
-	val = min(val, (u32) MS(0xFFFFFFFF, AR_TIME_OUT_ACK));
-	REG_RMW_FIELD(hw, AR_TIME_OUT, AR_TIME_OUT_ACK, val);
-}
-
-static void jaldi_hw_set_cts_timeout(struct jaldi_hw *hw, u32 us)
-{
-	u32 val = jaldi_hw_mac_to_clks(hw, us);
-	val = min(val, (u32) MS(0xFFFFFFFF, AR_TIME_OUT_CTS));
-	REG_RMW_FIELD(hw, AR_TIME_OUT, AR_TIME_OUT_CTS, val);
-}
-
-static bool jaldi_hw_set_global_txtimeout(struct jaldi_hw *hw, u32 tu)
-{
-	if (tu > 0xFFFF) {
-		jaldi_print(JALDI_DEBUG,
-			  "bad global tx timeout %u\n", tu);
-		hw->globaltxtimeout = (u32) -1;
-		return false;
-	} else {
-		REG_RMW_FIELD(hw, AR_GTXTO, AR_GTXTO_TIMEOUT_LIMIT, tu);
-		hw->globaltxtimeout = tu;
-		return true;
-	}
-}
-
-void jaldi_hw_init_global_settings(struct jaldi_hw *hw)
-{
-	int acktimeout;
-	int slottime;
-	int ifstime;
-
-	// TODO: set default ifs and slot times
-	ifstime = hw->ifstime;
-	slottime = hw->slottime;
-	acktimeout = slottime + ifstime; // TODO: is this what we want? may want to disable acktimeouts to handle at higher level.
-
-	jaldi_hw_setslottime(hw, slottime);
-	jaldi_hw_set_ack_timeout(hw, acktimeout);
-	jaldi_hw_set_cts_timeout(hw, acktimeout);
-	if (hw->globaltxtimeout != (u32) -1)
-		jaldi_hw_set_global_txtimeout(hw, hw->globaltxtimeout);
-}
-
-static void jaldi_hw_init_defaults(struct jaldi_hw *hw)
-{
-	hw->hw_version.magic = AR5416_MAGIC;
-	hw->hw_version.subvendorid = 0;
-
-	hw->hw_flags = 0;
-	if (!AR_SREV_9100(hw)) { hw->hw_flags = AH_USE_EEPROM; }
-
-	hw->slottime = (u32) -1;
-	hw->ifstime = (u32) -1;
-	hw->globaltxtimeout = (u32) -1;
-	hw->power_mode = JALDI_PM_UNDEFINED;
-}
-
-static int jaldi_hw_init_macaddr(struct jaldi_hw *hw) {
-	
-	struct jaldi_softc *sc = hw->sc;
-	u32 sum; 
-	int i;
-	u16 eeval;
-	u32 EEP_MAC[] = { EEP_MAC_LSW, EEP_MAC_MID, EEP_MAC_MSW };
-
-	sum = 0;
-	for (i = 0; i < 3; i++) {
-		eeval = hw->eep_ops->get_eeprom(hw, EEP_MAC[i]);
-		sum += eeval;
-		sc->macaddr[2 * i] = eeval >> 8;
-		sc->macaddr[2 * i + 1] = eeval & 0xff;
-	}
-	if (sum == 0 || sum == 0xffff * 3)
-		return -EADDRNOTAVAIL;
-
-	return 0;
-}
-
-
 /*******************/
 /* HW Capabilities */
 /*******************/
@@ -1111,12 +1177,6 @@ int jaldi_hw_fill_cap_info(struct jaldi_hw *hw)
 	else
 		pCap->total_queues = JALDI_NUM_TX_QUEUES;
 
-	if (capField & AR_EEPROM_EEPCAP_KC_ENTRIES)
-		pCap->keycache_size =
-			1 << MS(capField, AR_EEPROM_EEPCAP_KC_ENTRIES);
-	else
-		pCap->keycache_size = AR_KEYTABLE_SIZE;
-
 	pCap->hw_caps |= JALDI_HW_CAP_FASTCC;
 
 	if (AR_SREV_9285(hw) || AR_SREV_9271(hw))
@@ -1141,7 +1201,7 @@ int jaldi_hw_fill_cap_info(struct jaldi_hw *hw)
 	}
 
 	pCap->hw_caps |= JALDI_HW_CAP_ENHANCEDPM;
-
+/* This is throwing a compile error for some reason... we don't really care about rfkill for our purposes though.
 #if ((LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)) && defined(CONFIG_RFKILL) || defined(CONFIG_RFKILL_MODULE)) || ((LINUX_VERSION_CODE < KERNEL_VERSION(2,6,31)) && defined(CONFIG_RFKILL_BACKPORT) || defined(CONFIG_RFKILL_BACKPORT_MODULE))
 	hw->rfsilent = hw->eep_ops->get_eeprom(hw, EEP_RF_SILENT);
 	if (hw->rfsilent & EEP_RFSILENT_ENABLED) {
@@ -1153,6 +1213,7 @@ int jaldi_hw_fill_cap_info(struct jaldi_hw *hw)
 		pCap->hw_caps |= JALDI_HW_CAP_RFSILENT;
 	}
 #endif
+	*/
 	if (AR_SREV_9271(hw) || AR_SREV_9300_20_OR_LATER(hw))
 		pCap->hw_caps |= JALDI_HW_CAP_AUTOSLEEP;
 	else
@@ -1180,7 +1241,7 @@ int jaldi_hw_fill_cap_info(struct jaldi_hw *hw)
 //		pCap->tx_desc_len = sizeof(struct ar9003_txc);
 //		pCap->txs_len = sizeof(struct ar9003_txs);
 	} else {
-		pCap->tx_desc_len = sizeof(struct ath_desc); // TODO: jaldi_desc
+		pCap->tx_desc_len = sizeof(struct jaldi_desc);
 		if (AR_SREV_9280_20(hw) &&
 		    ((hw->eep_ops->get_eeprom(hw, EEP_MINOR_REV) <=
 		      AR5416_EEP_MINOR_VER_16) ||
@@ -1333,6 +1394,20 @@ void jaldi_hw_txstart(struct jaldi_hw *hw, u32 q)
 	REG_WRITE(hw, AR_Q_TXE, 1 << q);
 }
 
+u32 jaldi_hw_numtxpending(struct jaldi_hw *hw, u32 q)
+{
+	u32 npend;
+
+	npend = REG_READ(hw, AR_QSTS(q)) & AR_Q_STS_PEND_FR_CNT;
+	if (npend == 0) {
+
+		if (REG_READ(hw, AR_Q_TXE) & (1 << q))
+			npend = 1;
+	}
+
+	return npend;
+}
+
 /**
  * jaldi_hw_updatetxtriglevel - adjusts the frame trigger level
  *
@@ -1362,12 +1437,12 @@ void jaldi_hw_txstart(struct jaldi_hw *hw, u32 q)
 bool jaldi_hw_updatetxtriglevel(struct jaldi_hw *hw, bool bIncTrigLevel)
 {
 	u32 txcfg, curLevel, newLevel;
-	enum ath9k_int omask;
+	enum jaldi_intr_type omask;
 
 	if (hw->tx_trig_level >= hw->max_txtrig_level)
 		return false;
 
-	omask = jaldi_hw_set_interrupts(hw, hw->imask & ~ATH9K_INT_GLOBAL); // TODO
+	//omask = jaldi_hw_set_interrupts(hw, hw->imask & ~JALDI_INT_GLOBAL); // TODO
 
 	txcfg = REG_READ(hw, AR_TXCFG);
 	curLevel = MS(txcfg, AR_FTRIG);
@@ -1381,13 +1456,73 @@ bool jaldi_hw_updatetxtriglevel(struct jaldi_hw *hw, bool bIncTrigLevel)
 		REG_WRITE(hw, AR_TXCFG,
 			  (txcfg & ~AR_FTRIG) | SM(newLevel, AR_FTRIG));
 
-	jaldi_hw_set_interrupts(hw, omask); // TODO
+//	jaldi_hw_set_interrupts(hw, omask); // TODO
 
 	hw->tx_trig_level = newLevel;
 
 	return newLevel != curLevel;
 }
 
+bool jaldi_hw_set_txq_props(struct jaldi_hw *hw, int q,
+			    const struct jaldi_tx_queue_info *qinfo)
+{
+	u32 cw;
+	struct jaldi_hw_capabilities *pCap = &hw->caps;
+	struct jaldi_tx_queue_info *qi;
+
+	if (q >= pCap->total_queues) {
+		jaldi_print(JALDI_DEBUG, "Set TXQ properties, "
+			  "invalid queue: %u\n", q);
+		return false;
+	}
+
+	qi = &hw->txq[q];
+	if (qi->tqi_type == JALDI_TX_QUEUE_INACTIVE) {
+		jaldi_print(JALDI_DEBUG, "Set TXQ properties, "
+			  "inactive queue: %u\n", q);
+		return false;
+	}
+
+	jaldi_print(JALDI_DEBUG, "Set queue properties for: %u\n", q);
+
+	qi->tqi_ver = qinfo->tqi_ver;
+	qi->tqi_subtype = qinfo->tqi_subtype;
+	qi->tqi_qflags = qinfo->tqi_qflags;
+	qi->tqi_priority = qinfo->tqi_priority;
+	if (qinfo->tqi_aifs != JALDI_TXQ_USEDEFAULT)
+		qi->tqi_aifs = min(qinfo->tqi_aifs, 255U);
+	else
+		qi->tqi_aifs = INIT_AIFS;
+	if (qinfo->tqi_cwmin != JALDI_TXQ_USEDEFAULT) {
+		cw = min(qinfo->tqi_cwmin, 1024U);
+		qi->tqi_cwmin = 1;
+		while (qi->tqi_cwmin < cw)
+			qi->tqi_cwmin = (qi->tqi_cwmin << 1) | 1;
+	} else
+		qi->tqi_cwmin = qinfo->tqi_cwmin;
+	if (qinfo->tqi_cwmax != JALDI_TXQ_USEDEFAULT) {
+		cw = min(qinfo->tqi_cwmax, 1024U);
+		qi->tqi_cwmax = 1;
+		while (qi->tqi_cwmax < cw)
+			qi->tqi_cwmax = (qi->tqi_cwmax << 1) | 1;
+	} else
+		qi->tqi_cwmax = INIT_CWMAX;
+
+	if (qinfo->tqi_shretry != 0)
+		qi->tqi_shretry = min((u32) qinfo->tqi_shretry, 15U);
+	else
+		qi->tqi_shretry = INIT_SH_RETRY;
+	if (qinfo->tqi_lgretry != 0)
+		qi->tqi_lgretry = min((u32) qinfo->tqi_lgretry, 15U);
+	else
+		qi->tqi_lgretry = INIT_LG_RETRY;
+	qi->tqi_cbrPeriod = qinfo->tqi_cbrPeriod;
+	qi->tqi_cbrOverflowLimit = qinfo->tqi_cbrOverflowLimit;
+	qi->tqi_burstTime = qinfo->tqi_burstTime;
+	qi->tqi_readyTime = qinfo->tqi_readyTime;
+
+	return true;
+}
 
 /* Note to self: was going to integrate tx queue setup, release, and reset next.
  * Next need to look into the various descriptor structs and queue info structs
@@ -1440,7 +1575,7 @@ int jaldi_hw_setuptxqueue(struct jaldi_hw *hw, enum jaldi_tx_queue type,
 		qi->tqi_physCompBuf = 0;
 	} else {
 		qi->tqi_physCompBuf = qinfo->tqi_physCompBuf;
-		(void) ath9k_hw_set_txq_props(hw, q, qinfo); // TODO
+		(void) jaldi_hw_set_txq_props(hw, q, qinfo);
 	}
 
 	return q;
@@ -1658,6 +1793,42 @@ void jaldi_hw_stoppcurecv(struct jaldi_hw *hw)
 	REG_SET_BIT(hw, AR_DIAG_SW, AR_DIAG_RX_DIS);
 }
 
+void jaldi_hw_abortpcurecv(struct jaldi_hw *hw)
+{
+	REG_SET_BIT(hw, AR_DIAG_SW, AR_DIAG_RX_ABORT | AR_DIAG_RX_DIS);
+}
+
+bool jaldi_hw_stopdmarecv(struct jaldi_hw *hw)
+{
+#define RX_STOP_DMA_TIMEOUT 10000   /* usec */
+#define RX_TIME_QUANTUM     100     /* usec */
+	int i;
+
+	REG_WRITE(hw, AR_CR, AR_CR_RXD);
+
+	/* Wait for rx enable bit to go low */
+	for (i = RX_STOP_DMA_TIMEOUT / JALDI_TIME_QUANTUM; i != 0; i--) {
+		if ((REG_READ(hw, AR_CR) & AR_CR_RXE) == 0)
+			break;
+		udelay(JALDI_TIME_QUANTUM);
+	}
+
+	if (i == 0) {
+		jaldi_print(JALDI_FATAL,
+			  "DMA failed to stop in %d ms "
+			  "AR_CR=0x%08x AR_DIAG_SW=0x%08x\n",
+			  RX_STOP_DMA_TIMEOUT / 1000,
+			  REG_READ(hw, AR_CR),
+			  REG_READ(hw, AR_DIAG_SW));
+		return false;
+	} else {
+		return true;
+	}
+
+#undef RX_TIME_QUANTUM
+#undef RX_STOP_DMA_TIMEOUT
+}
+
 /****************/
 /* MAC (ar9002) */
 /****************/
@@ -1696,7 +1867,6 @@ static void jaldi_hw_set11n_txdesc(struct jaldi_hw *hw, void *ds,
 {
 	struct ar5416_desc *ads = AR5416DESC(ds);
 
-	txPower += ah->txpower_indexoffset;
 	if (txPower > 63)
 		txPower = 63;
 
@@ -1707,8 +1877,11 @@ static void jaldi_hw_set11n_txdesc(struct jaldi_hw *hw, void *ds,
 		| (flags & ATH9K_TXDESC_CLRDMASK ? AR_ClrDestMask : 0)
 		| (flags & ATH9K_TXDESC_INTREQ ? AR_TxIntrReq : 0);
 
+	if (type != JALDI_PKT_TYPE_NORMAL)
+		jaldi_print(JALDI_DEBUG, "uh-oh! sending a packet of type %d in set11n_txdesc, should be 0.\n", type); 
+		
 	ads->ds_ctl1 =
-		 SM(type, AR_FrameType)
+		 SM(type, AR_FrameType) 
 		| (flags & ATH9K_TXDESC_NOACK ? AR_NoAck : 0)
 		| (flags & ATH9K_TXDESC_EXT_ONLY ? AR_ExtOnly : 0)
 		| (flags & ATH9K_TXDESC_EXT_AND_CTL ? AR_ExtAndCtl : 0);
@@ -1717,7 +1890,7 @@ static void jaldi_hw_set11n_txdesc(struct jaldi_hw *hw, void *ds,
 #define JALDI_KEY_TYPE_CLEAR 0
 	ads->ds_ctl6 = SM(JALDI_KEY_TYPE_CLEAR, AR_EncrType);
 
-	if (AR_SREV_9285(ah) || AR_SREV_9271(ah)) {
+	if (AR_SREV_9285(hw) || AR_SREV_9271(hw)) {
 		ads->ds_ctl8 = 0;
 		ads->ds_ctl9 = 0;
 		ads->ds_ctl10 = 0;

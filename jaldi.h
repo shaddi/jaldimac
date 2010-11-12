@@ -43,6 +43,8 @@
 	 (((unsigned long long int)(x)) & 0xffffffff) : \
 	 (unsigned long long int)(x))
 
+#define	JALDI_TXQ_SETUP(sc, i)        ((sc)->tx.txqsetup & (1<<i))
+
 #define SC_OP_INVALID                BIT(0)
 #define SC_OP_BEACONS                BIT(1)
 #define SC_OP_RXAGGR                 BIT(2)
@@ -147,11 +149,13 @@ struct jaldi_softc {
 	int irq; // irq number...
 	spinlock_t sc_resetlock;
 	spinlock_t sc_serial_rw;
+	spinlock_t sc_pm_lock;
 
 	u32 intrstatus; // keep track of reason for interrupt
 	u32 sc_flags; /* TODO: investigate the usage of this */
 	bool hw_ready; // flag to see if hw is ready
-	u16 ps_flags; /* powersave -- not used */
+	u16 ps_flags; /* powersave */
+	unsigned long ps_usecount;
 	u16 curtxpow; /* tx power (.5 dBm units) */
 	
 	/* netdev */
@@ -172,10 +176,20 @@ struct jaldi_softc {
 	// none at softc level yet...
 };
 
+bool jaldi_setpower(struct jaldi_softc *sc, enum jaldi_power_mode mode);
+void jaldi_ps_wakeup(struct jaldi_softc *sc);
 int jaldi_init_softc(u16 devid, struct jaldi_softc *sc, u16 subsysid, const struct jaldi_bus_ops *bus_ops);
 int jaldi_init_device(u16 devid, struct jaldi_softc *sc, u16 subsysid, const struct jaldi_bus_ops *bus_ops);
 void jaldi_deinit_device(struct jaldi_softc *sc);
 int jaldi_init_interrupts(struct jaldi_softc *sc); 
+struct jaldi_txq *jaldi_txq_setup(struct jaldi_softc *sc, int qtype, int subtype);
+int jaldi_tx_setup(struct jaldi_softc *sc, int haltype);
+
+int jaldi_descdma_setup(struct jaldi_softc *sc, struct jaldi_descdma *dd,
+		      struct list_head *head, const char *name,
+		      int nbuf, int ndesc, bool is_tx);
+void jaldi_descdma_cleanup(struct jaldi_softc *sc, struct jaldi_descdma *dd,
+			 struct list_head *head);
 
 void jaldi_tx_cleanupq(struct jaldi_softc *sc, struct jaldi_txq *txq);
 irqreturn_t jaldi_isr(int irq, void *dev);
