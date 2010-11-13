@@ -12,7 +12,7 @@ void jaldi_print(int level, const char *fmt, ...)
 		return;
 
 	va_start(args, fmt);
-	printk(KERN_DEBUG "jaldi: ");
+	printk(KERN_EMERG "jaldi: ");
 	vprintk(fmt, args);
 	va_end(args);
 }

@@ -22,6 +22,7 @@ static DEFINE_PCI_DEVICE_TABLE(jaldi_pci_id_table) = {
 /* bus ops */
 static void jaldi_pci_read_cachesize(struct jaldi_softc *sc, int *csz) {
 	u8 u8tmp;
+	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);	
 	pci_read_config_byte(to_pci_dev(sc->dev), PCI_CACHE_LINE_SIZE, &u8tmp);
 	*csz = (int)u8tmp;
 
@@ -32,6 +33,7 @@ static void jaldi_pci_read_cachesize(struct jaldi_softc *sc, int *csz) {
 static bool jaldi_pci_eeprom_read(struct jaldi_softc *sc, u8 off, u16 *data)
 {
 	struct jaldi_hw *hw = sc->hw;
+	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);	
 	hw->reg_ops->read(hw, AR5416_EEPROM_OFFSET + (off << AR5416_EEPROM_S));
 
 	if (!jaldi_hw_wait(hw,
@@ -62,6 +64,7 @@ static int jaldi_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	u32 val;
 	int ret = 0;
 	
+	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);	
 	if (pci_enable_device(pdev)) {
 		return -EIO;
 	}
@@ -178,6 +181,7 @@ static void jaldi_pci_remove(struct pci_dev *pdev)
 	struct jaldi_softc *sc; 
 	void __iomem *mem;
 
+	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);	
 	sc = pci_get_drvdata(pdev);
 	mem = sc->mem;
 
@@ -206,10 +210,12 @@ static struct pci_driver jaldi_pci_driver = {
 
 int jaldi_pci_init(void)
 {
+	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);	
 	return pci_register_driver(&jaldi_pci_driver);
 }
 
 void jaldi_pci_exit(void)
 {
+	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);	
 	pci_unregister_driver(&jaldi_pci_driver);
 }

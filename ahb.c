@@ -9,6 +9,7 @@ static void jaldi_ahb_read_cachesize(struct jaldi_softc *sc, int *csz) {
 
 static bool jaldi_ahb_eeprom_read(struct jaldi_softc *sc, u32 off, u16 *data)
 {
+	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);	
 	struct platform_device *pdev = to_platform_device(sc->dev);
 	struct ath9k_platform_data *pdata; // making use of linux/ath9k_platform
 
@@ -40,6 +41,7 @@ static int jaldi_ahb_probe(struct platform_device *pdev) {
 	struct jaldi_hw *hw;
 	//char hw_name[64];
 
+	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);	
 	if (!pdev->dev.platform_data) {
 		dev_err(&pdev->dev, "no platform data specified\n");
 		ret = -EINVAL;
@@ -113,6 +115,7 @@ err_out:
 };
 
 static int jaldi_ahb_remove(struct platform_device *pdev) {
+	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);	
 	struct jaldi_softc *sc = platform_get_drvdata(pdev);
 
 	if (sc) {
@@ -139,9 +142,11 @@ static struct platform_driver jaldi_ahb_driver = {
 };
 
 int jaldi_ahb_init(void) {
+	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);	
 	return platform_driver_register(&jaldi_ahb_driver);
 }
 
 void jaldi_ahb_exit(void) {
+	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);	
 	platform_driver_unregister(&jaldi_ahb_driver);
 }

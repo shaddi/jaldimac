@@ -176,6 +176,12 @@ struct jaldi_softc {
 	// none at softc level yet...
 };
 
+// PCI/AHB init 
+int jaldi_pci_init(void);
+void jaldi_pci_exit(void);
+int jaldi_ahb_init(void);
+void jaldi_ahb_exit(void);
+
 bool jaldi_setpower(struct jaldi_softc *sc, enum jaldi_power_mode mode);
 void jaldi_ps_wakeup(struct jaldi_softc *sc);
 int jaldi_init_softc(u16 devid, struct jaldi_softc *sc, u16 subsysid, const struct jaldi_bus_ops *bus_ops);

@@ -262,7 +262,7 @@ int jaldi_hw_tx(struct jaldi_softc *sc, struct jaldi_packet *pkt)
 {
 	struct jaldi_buf bf;
 
-	jaldi_print(JALDI_DEBUG,"Entering '__FUNCTION__'\n");
+	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);
 
 	// TODO: set queue number in hw
 	// bf.txq = softc.txq[qnum];
@@ -272,14 +272,17 @@ int jaldi_hw_tx(struct jaldi_softc *sc, struct jaldi_packet *pkt)
 	// setup buffer
 	memset(&bf, 0, sizeof(struct jaldi_buf));
 
+	jaldi_print(JALDI_DEBUG, WHERESTR, WHEREARG);
 	bf.bf_dma_context = dma_map_single(sc->dev, pkt->skb->data, 
 						pkt->skb->len, DMA_TO_DEVICE);
 
+	jaldi_print(JALDI_DEBUG, WHERESTR, WHEREARG);
 	if(unlikely(dma_mapping_error(sc->dev, bf.bf_dma_context))) {
 		jaldi_print(JALDI_WARN, "dma_mapping_error during TX\n");
 		return -ENOMEM;
 	}
 
+	jaldi_print(JALDI_DEBUG, WHERESTR, WHEREARG);
 	bf.bf_buf_addr = bf.bf_dma_context;
 
 	
@@ -316,7 +319,8 @@ int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 	struct jaldi_softc *sc = netdev_priv(dev);
 	struct jaldi_packet *pkt;
 	
-	jaldi_print(JALDI_DEBUG,"Entering '__FUNCTION__'\n");
+	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);
+
 	data = skb->data;
 	len = skb->len;
 	
@@ -327,7 +331,7 @@ int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 	/* create jaldi packet */
 	pkt = kmalloc (sizeof (struct jaldi_packet), GFP_KERNEL);
 	if (!pkt) {
-		printk(KERN_NOTICE "jaldi: Out of memory while allocating packet\n");
+		jaldi_print(JALDI_WARN, "Out of memory while allocating packet\n");
 		return 0;
 	}
 	
@@ -362,14 +366,14 @@ int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 /* Enable rx interrupts */
 static void jaldi_rx_ints(struct jaldi_softc *sc, int enable)
 {
-	jaldi_print(JALDI_DEBUG,"Entering '__FUNCTION__'\n");
+	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);
 	sc->rx_int_enabled = enable;
 
 }
 /* Enable tx interrupts */
 static void jaldi_tx_ints(struct jaldi_softc *sc, int enable)
 {
-	jaldi_print(JALDI_DEBUG,"Entering '__FUNCTION__'\n");
+	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);
 	sc->tx_int_enabled = enable;
 }
 
@@ -402,8 +406,7 @@ void jaldi_init(struct net_device *dev)
 {
 	struct jaldi_softc *sc;
 
-	jaldi_print(JALDI_DEBUG,"Entering '__FUNCTION__'\n");
-	jaldi_print(JALDI_INFO, "jaldi_init start\n");
+	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);
 
 	ether_setup(dev);
 
@@ -431,30 +434,51 @@ void jaldi_init(struct net_device *dev)
 
 int jaldi_init_module(void)
 {
-	int result, ret = -ENOMEM;
-	jaldi_print(JALDI_DEBUG,"Entering '__FUNCTION__'\n");
-	jaldi_print(JALDI_DEBUG, "creating netdev...\n");
-	jaldi_dev = alloc_netdev(sizeof(struct jaldi_softc), "jaldi%d", jaldi_init);
+	int result, ret = -ENODEV;
+	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);
+	jaldi_print(JALDI_INFO, "Loading jaldimac. 2\n");
 	
+
+	result = jaldi_pci_init();
+	if (result < 0) {
+		jaldi_print(JALDI_FATAL, "No PCI device found, driver load cancelled.\n");
+		goto err_pci;
+	}
+
+	result = jaldi_ahb_init();
+	if (result < 0) {
+		jaldi_print(JALDI_WARN, "AHB init failed (jaldimac devices should pass this!)\n");
+		goto err_ahb;
+	}
+
+
+	ret = -ENOMEM;
+	jaldi_dev = alloc_netdev(sizeof(struct jaldi_softc), "jaldi%d", jaldi_init);
 	if (jaldi_dev == NULL) {
 		printk(KERN_ERR "jaldi_dev is null");
-		goto out;
+		goto err_alloc;
 	}	
-	
 	jaldi_print(JALDI_DEBUG, "netdev allocated.\n");
-		
-	ret = -ENODEV;
+
+
 	result = register_netdev(jaldi_dev);
-	if (result) 
+	if (result) {
 		jaldi_print(JALDI_DEBUG, "error %i registering device \"%s\"\n", result, jaldi_dev->name);
-	else
+		goto err_register;
+	} else {
 		ret = 0;
+	}
 		
 	jaldi_print(JALDI_DEBUG, "netdev registered.\n");	
-	
-out:
-	if (ret)
-		jaldi_cleanup();
+	return ret;
+
+err_register:
+	free_netdev(jaldi_dev);
+err_alloc:
+	jaldi_ahb_exit();	
+err_ahb:
+	jaldi_pci_exit();
+err_pci:
 	return ret;
 }
 
