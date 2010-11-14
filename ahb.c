@@ -100,7 +100,7 @@ static int jaldi_ahb_probe(struct platform_device *pdev) {
 	}
 
 	hw = sc->hw; // pointer to jaldi_hw struct
-	//jaldi_hw_name(hw, hw_name, sizeof(hw_name)); // TODO what the hell is this?
+	//jaldi_hw_name(hw, hw_name, sizeof(hw_name)); // TODO
 	//printk(KERN_INFO "jaldi: %s mem=0x%1x, irq=%d\n", hw_name, (unsigned long)mem, irq);
 	return 0;
 

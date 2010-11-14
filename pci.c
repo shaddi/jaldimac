@@ -6,6 +6,7 @@
 #include "jaldi.h"
 
 /* device id table taken from ath9k/pci.c */
+//static struct pci_device_id jaldi_pci_id_table[] __devinitdata = {
 static DEFINE_PCI_DEVICE_TABLE(jaldi_pci_id_table) = {
 	{ PCI_VDEVICE(ATHEROS, 0x0023) }, /* PCI   */
 	{ PCI_VDEVICE(ATHEROS, 0x0024) }, /* PCI-E */
@@ -22,7 +23,7 @@ static DEFINE_PCI_DEVICE_TABLE(jaldi_pci_id_table) = {
 /* bus ops */
 static void jaldi_pci_read_cachesize(struct jaldi_softc *sc, int *csz) {
 	u8 u8tmp;
-	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);	
+	DBG_START_MSG;
 	pci_read_config_byte(to_pci_dev(sc->dev), PCI_CACHE_LINE_SIZE, &u8tmp);
 	*csz = (int)u8tmp;
 
@@ -33,7 +34,6 @@ static void jaldi_pci_read_cachesize(struct jaldi_softc *sc, int *csz) {
 static bool jaldi_pci_eeprom_read(struct jaldi_softc *sc, u8 off, u16 *data)
 {
 	struct jaldi_hw *hw = sc->hw;
-	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);	
 	hw->reg_ops->read(hw, AR5416_EEPROM_OFFSET + (off << AR5416_EEPROM_S));
 
 	if (!jaldi_hw_wait(hw,
@@ -63,8 +63,8 @@ static int jaldi_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	u16 subsysid;
 	u32 val;
 	int ret = 0;
-	
-	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);	
+
+	DBG_START_MSG;
 	if (pci_enable_device(pdev)) {
 		return -EIO;
 	}
@@ -200,13 +200,7 @@ static struct pci_driver jaldi_pci_driver = {
 	.id_table   = jaldi_pci_id_table,
 	.probe      = jaldi_pci_probe,
 	.remove     = jaldi_pci_remove,
-#ifdef CONFIG_PM
-	.suspend    = jaldi_pci_suspend,
-	.resume     = jaldi_pci_resume,
-#endif /* CONFIG_PM */
 };
-
-
 
 int jaldi_pci_init(void)
 {

@@ -394,7 +394,7 @@ struct jaldi_hw_capabilities {
 struct jaldi_bus_ops {
 	enum jaldi_bus_type type;
 	void (*read_cachesize)(struct jaldi_softc *sc, int *cache_size);
-	bool (*eeprom_read)(struct jaldi_softc *sc, u32 off, u16 *data);
+	bool (*eeprom_read)(struct jaldi_softc *hw, u32 off, u16 *data);
 };
 
 /**

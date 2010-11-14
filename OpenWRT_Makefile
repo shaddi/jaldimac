@@ -20,6 +20,7 @@ WMENU:=Wireless Drivers
 
 define KernelPackage/jaldi
 	TITLE:=JaldiMAC driver for Atheros wireless devices
+	DEPENDS+= @PCI_SUPPORT
 	SUBMENU:=$(WMENU)
 	VERSION:=$(LINUX_VERSION)+$(PKG_VERSION)
 	FILES:= \

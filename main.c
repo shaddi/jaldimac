@@ -262,7 +262,7 @@ int jaldi_hw_tx(struct jaldi_softc *sc, struct jaldi_packet *pkt)
 {
 	struct jaldi_buf bf;
 
-	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);
+	DBG_START_MSG;
 
 	// TODO: set queue number in hw
 	// bf.txq = softc.txq[qnum];
@@ -270,6 +270,7 @@ int jaldi_hw_tx(struct jaldi_softc *sc, struct jaldi_packet *pkt)
 	// TODO: set config tx flags
 
 	// setup buffer
+	/* this is all out of date. see new xmit stuff.
 	memset(&bf, 0, sizeof(struct jaldi_buf));
 
 	jaldi_print(JALDI_DEBUG, WHERESTR, WHEREARG);
@@ -284,6 +285,7 @@ int jaldi_hw_tx(struct jaldi_softc *sc, struct jaldi_packet *pkt)
 
 	jaldi_print(JALDI_DEBUG, WHERESTR, WHEREARG);
 	bf.bf_buf_addr = bf.bf_dma_context;
+	*/
 
 	
 
@@ -319,7 +321,7 @@ int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 	struct jaldi_softc *sc = netdev_priv(dev);
 	struct jaldi_packet *pkt;
 	
-	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);
+	DBG_START_MSG;
 
 	data = skb->data;
 	len = skb->len;
@@ -366,14 +368,14 @@ int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 /* Enable rx interrupts */
 static void jaldi_rx_ints(struct jaldi_softc *sc, int enable)
 {
-	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);
+	DBG_START_MSG;
 	sc->rx_int_enabled = enable;
 
 }
 /* Enable tx interrupts */
 static void jaldi_tx_ints(struct jaldi_softc *sc, int enable)
 {
-	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);
+	DBG_START_MSG;
 	sc->tx_int_enabled = enable;
 }
 
@@ -389,7 +391,8 @@ void jaldi_cleanup(void)
 {
 	unregister_netdev(jaldi_dev);
 	free_netdev(jaldi_dev);
-	
+	jaldi_ahb_exit();
+	jaldi_pci_exit();
 	return;
 }
 
@@ -406,7 +409,7 @@ void jaldi_init(struct net_device *dev)
 {
 	struct jaldi_softc *sc;
 
-	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);
+	DBG_START_MSG;
 
 	ether_setup(dev);
 
@@ -435,7 +438,7 @@ void jaldi_init(struct net_device *dev)
 int jaldi_init_module(void)
 {
 	int result, ret = -ENODEV;
-	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);
+	DBG_START_MSG;
 	jaldi_print(JALDI_INFO, "Loading jaldimac. 2\n");
 	
 
@@ -445,11 +448,14 @@ int jaldi_init_module(void)
 		goto err_pci;
 	}
 
+	jaldi_print(JALDI_INFO, "pci_init returns %d\n", result);
+
 	result = jaldi_ahb_init();
 	if (result < 0) {
 		jaldi_print(JALDI_WARN, "AHB init failed (jaldimac devices should pass this!)\n");
 		goto err_ahb;
 	}
+	jaldi_print(JALDI_INFO, "ahb_init returns %d\n", result);
 
 
 	ret = -ENOMEM;

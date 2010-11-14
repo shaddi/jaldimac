@@ -388,6 +388,7 @@ static bool jaldi_hw_chip_test(struct jaldi_hw *hw)
 
 static void jaldi_hw_init_config(struct jaldi_hw *hw)
 { 
+	DBG_START_MSG;	
 	hw->analog_shiftreg = 1;
 
 	if (hw->hw_version.devid != AR2427_DEVID_PCIE)
@@ -477,6 +478,7 @@ void jaldi_hw_init_global_settings(struct jaldi_hw *hw)
 
 static void jaldi_hw_init_defaults(struct jaldi_hw *hw)
 {
+	DBG_START_MSG;	
 	hw->hw_version.magic = AR5416_MAGIC;
 	hw->hw_version.subvendorid = 0;
 
@@ -600,6 +602,7 @@ static bool jaldi_hw_set_reset(struct jaldi_hw *hw, int type) {
 	u32 rst_flags;
 	u32 tmpReg;
 
+	DBG_START_MSG;	
 	if (AR_SREV_9100(hw)) {
 		u32 val = REG_READ(hw, AR_RTC_DERIVED_CLK);
 		val &= ~AR_RTC_DERIVED_CLK_PERIOD;
@@ -698,6 +701,7 @@ static bool jaldi_hw_set_reset_power_on(struct jaldi_hw *hw)
 }
 
 static bool jaldi_hw_set_reset_reg(struct jaldi_hw *hw, u32 type) {
+	DBG_START_MSG;	
 	REG_WRITE(hw, AR_RTC_FORCE_WAKE,
 		  AR_RTC_FORCE_WAKE_EN | AR_RTC_FORCE_WAKE_ON_INT);
 
@@ -715,6 +719,7 @@ static bool jaldi_hw_set_reset_reg(struct jaldi_hw *hw, u32 type) {
 static bool jaldi_hw_chip_reset(struct jaldi_hw *hw,
 				struct jaldi_channel *chan)
 {
+	DBG_START_MSG;	
 	if (AR_SREV_9280(hw) && hw->eep_ops->get_eeprom(hw, EEP_OL_PWRCTRL)) {
 		if (!jaldi_hw_set_reset_reg(hw, JALDI_RESET_POWER_ON))
 			return false;
@@ -1098,8 +1103,9 @@ bool jaldi_hw_setpower(struct jaldi_hw *hw, enum jaldi_power_mode mode)
 
 int jaldi_hw_fill_cap_info(struct jaldi_hw *hw)
 {
+	DBG_START_MSG;
 	struct jaldi_hw_capabilities *pCap = &hw->caps;
-
+	OHAI;
 	u16 capField = 0, eeval;
 
 	capField = hw->eep_ops->get_eeprom(hw, EEP_OP_CAP);
@@ -1113,7 +1119,7 @@ int jaldi_hw_fill_cap_info(struct jaldi_hw *hw)
 	} else if ((eeval & AR5416_OPFLAGS_11G) != 0) {
 		jaldi_print(JALDI_WARN, "This hardware only supports the 2GHz band.\n");	
 	}
-
+	OHAI;
 	/* Read the wireless modes we support */
 	bitmap_zero(pCap->wireless_modes, JALDI_MODE_MAX);
 	
@@ -1132,6 +1138,7 @@ int jaldi_hw_fill_cap_info(struct jaldi_hw *hw)
 		}
 	}
 
+	OHAI;
 	if (eeval & AR5416_OPFLAGS_11G) {
 		set_bit(JALDI_MODE_11G, pCap->wireless_modes);
 		if (hw->ht_enable) {
@@ -1161,6 +1168,7 @@ int jaldi_hw_fill_cap_info(struct jaldi_hw *hw)
 	/* ath9k sets up crypto capabilities here (no eeprom read... just defaults 
 	 * apparently), but we're omitting those here. */
 
+	OHAI;
 	if (hw->ht_enable) /* set during hw_config_init */
 		pCap->hw_caps |= JALDI_HW_CAP_HT;
 	else
@@ -1179,6 +1187,7 @@ int jaldi_hw_fill_cap_info(struct jaldi_hw *hw)
 
 	pCap->hw_caps |= JALDI_HW_CAP_FASTCC;
 
+	OHAI;
 	if (AR_SREV_9285(hw) || AR_SREV_9271(hw))
 		pCap->tx_triglevel_max = MAX_TX_FIFO_THRESHOLD >> 1;
 	else
@@ -1200,6 +1209,7 @@ int jaldi_hw_fill_cap_info(struct jaldi_hw *hw)
 		pCap->rts_aggr_limit = (8 * 1024);
 	}
 
+	OHAI;
 	pCap->hw_caps |= JALDI_HW_CAP_ENHANCEDPM;
 /* This is throwing a compile error for some reason... we don't really care about rfkill for our purposes though.
 #if ((LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)) && defined(CONFIG_RFKILL) || defined(CONFIG_RFKILL_MODULE)) || ((LINUX_VERSION_CODE < KERNEL_VERSION(2,6,31)) && defined(CONFIG_RFKILL_BACKPORT) || defined(CONFIG_RFKILL_BACKPORT_MODULE))
@@ -1261,7 +1271,18 @@ int jaldi_hw_fill_cap_info(struct jaldi_hw *hw)
 /* TODO: unfinished */
 static int jaldi_hw_post_init(struct jaldi_hw *hw)
 {
+	int err = 0;
 	if (!jaldi_hw_chip_test(hw)) { return -ENODEV; }
+
+	err = jaldi_hw_eeprom_init(hw);	
+	if (err != 0)
+		return err;
+
+	jaldi_print(JALDI_INFO, "eeprom version %d, rev %d\n", 
+			hw->eep_ops->get_eeprom_ver(hw),
+			hw->eep_ops->get_eeprom_rev(hw));
+
+	
 
 
 	return 0;
@@ -1274,10 +1295,13 @@ static void jaldi_hw_attach_ops(struct jaldi_hw *hw)
 
 static int __jaldi_hw_init(struct jaldi_hw *hw)
 {
+	int r = 0;
 
-	if (hw->hw_version.devid != AR9280_DEVID_PCI 
-		|| hw->hw_version.devid != AR9280_DEVID_PCIE) {
-		jaldi_print(0,"This device is not supported by JaldiMAC.\n");
+	DBG_START_MSG;	
+	if (!(hw->hw_version.devid == AR9280_DEVID_PCI 
+		|| hw->hw_version.devid == AR9280_DEVID_PCIE)) {
+		jaldi_print(JALDI_FATAL,"This device (devid: %d) is not supported by JaldiMAC (%d or %d).\n",
+				hw->hw_version.devid, AR9280_DEVID_PCI, AR9280_DEVID_PCIE);
 		// goal here is to only allow ar9280 (ubnt ns5m and similar) to work
 
 		return -EOPNOTSUPP;
@@ -1288,7 +1312,7 @@ static int __jaldi_hw_init(struct jaldi_hw *hw)
 		return -EIO;
 	}
 
-
+	jaldi_print(JALDI_DEBUG, "chip reset\n");
 	jaldi_hw_init_defaults(hw);
 	jaldi_hw_init_config(hw);
 	jaldi_hw_attach_ops(hw);
@@ -1297,7 +1321,7 @@ static int __jaldi_hw_init(struct jaldi_hw *hw)
 		jaldi_print(JALDI_FATAL, "Couldn't wakeup chip\n");
 		return -EIO;
 	}
-
+	
 	if (AR_SREV_9271(hw) || AR_SREV_9100(hw))
 		hw->is_pciexpress = false;
 
@@ -1330,6 +1354,14 @@ static int __jaldi_hw_init(struct jaldi_hw *hw)
 
 	hw->hw_version.phyRev = REG_READ(hw, AR_PHY_CHIP_ID);
 
+	r = jaldi_hw_post_init(hw);
+	if (r) 
+		return r;
+
+	r = jaldi_hw_fill_cap_info(hw);
+	if (r)
+		return r;
+
 	hw->dev_state = JALDI_HW_INITIALIZED;
 }
 
@@ -1338,6 +1370,7 @@ int jaldi_hw_init(struct jaldi_hw *hw)
 {
 	int ret;
 
+	DBG_START_MSG;	
 	/* These are all the AR5008/AR9001/AR9002 hardware family of chipsets */
 	switch (hw->hw_version.devid) {
 	case AR5416_DEVID_PCI:
@@ -1753,6 +1786,7 @@ bool jaldi_hw_setrxabort(struct jaldi_hw *hw, bool set)
 {
 	u32 reg;
 
+	DBG_START_MSG;	
 	if (set) {
 		REG_SET_BIT(hw, AR_DIAG_SW,
 			    (AR_DIAG_RX_DIS | AR_DIAG_RX_ABORT));

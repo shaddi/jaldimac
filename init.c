@@ -98,7 +98,7 @@ static void jaldi_iowrite32(struct jaldi_hw *hw, u32 val, u32 reg_offset) {
 	}
 }
 
-static void jaldi_ioread32(struct jaldi_hw *hw, u32 reg_offset) {
+static unsigned int jaldi_ioread32(struct jaldi_hw *hw, u32 reg_offset) {
 	struct jaldi_softc *sc = hw->sc;
 	u32 val; 
 
@@ -110,6 +110,8 @@ static void jaldi_ioread32(struct jaldi_hw *hw, u32 reg_offset) {
 	} else {
 		val = ioread32(sc->mem + reg_offset);
 	}
+
+	return val;
 }
 
 static const struct jaldi_register_ops jaldi_reg_ops = {
@@ -121,16 +123,27 @@ static const struct jaldi_register_ops jaldi_reg_ops = {
 /* Should set up DMA as well as worker thread to handle setting up queues, etc. */
 int jaldi_tx_init(struct jaldi_softc *sc, int nbufs)
 {
-	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);	
+	int error = 0;
+
+	DBG_START_MSG;	
 	spin_lock_init(&sc->tx.txbuflock);
 
-	return 0;
+	error = jaldi_descdma_setup(sc, &sc->tx.txdma, &sc->tx.txbuf, 
+					"tx", nbufs, 1, 1);
 
+	if (error != 0) {
+		jaldi_print(JALDI_ALERT, "Failed to allocate tx descriptors\n");
+		jaldi_tx_cleanup(sc);	
+		return error;
+	}
+
+	return 0;
+	
 }
 
 void jaldi_tx_cleanup(struct jaldi_softc *sc)
 {
-	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);	
+	DBG_START_MSG;	
 	if (sc->tx.txdma.dd_desc_len != 0)
 		jaldi_descdma_cleanup(sc, &sc->tx.txdma, &sc->tx.txbuf); 
 
@@ -139,7 +152,7 @@ void jaldi_tx_cleanup(struct jaldi_softc *sc)
 void jaldi_descdma_cleanup(struct jaldi_softc *sc, struct jaldi_descdma *dd,
 				struct list_head *head)
 {
-	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);	
+	DBG_START_MSG;	
 	dma_free_coherent(sc->dev, dd->dd_desc_len, dd->dd_desc,
 				dd->dd_desc_paddr);
 
@@ -164,7 +177,7 @@ int jaldi_descdma_setup(struct jaldi_softc *sc, struct jaldi_descdma *dd,
 	struct jaldi_buf *bf;
 	int i, bsize, error, desc_len;
 
-	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);	
+	DBG_START_MSG;	
 	jaldi_print(JALDI_DEBUG, "%s DMA: %u buffers %u desc/buf\n",
 		  name, nbuf, ndesc);
 
@@ -265,7 +278,7 @@ static int jaldi_init_queues(struct jaldi_softc *sc)
 {
 	int i = 0;
 
-	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);	
+	DBG_START_MSG;	
 	for (i = 0; i < ARRAY_SIZE(sc->tx.hwq_map); i++)
 		sc->tx.hwq_map[i] = -1;
 
@@ -306,17 +319,23 @@ int jaldi_init_softc(u16 devid, struct jaldi_softc *sc, u16 subsysid, const stru
 	struct jaldi_hw *hw = NULL;
 	int ret = 0;
 
-	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);	
+	DBG_START_MSG;	
 	hw = kzalloc(sizeof(struct jaldi_hw), GFP_KERNEL);
 	if (!hw) return -ENOMEM;
 
 	hw->hw_version.devid = devid;
 	hw->hw_version.subsysid = subsysid;
+
+	hw->sc = sc;
 	sc->hw = hw;
+	
+	hw->reg_ops = &jaldi_reg_ops;
+	hw->bus_ops = bus_ops;
 
 	spin_lock_init(&sc->sc_resetlock);
 	spin_lock_init(&sc->sc_netdevlock);
 	spin_lock_init(&sc->sc_pm_lock);
+	spin_lock_init(&sc->sc_serial_rw);
 	/* init tasklets and other locks here */
 
 	/* ath9k reads cache line size here... may be relevant */
@@ -341,7 +360,7 @@ int jaldi_init_device(u16 devid, struct jaldi_softc *sc, u16 subsysid, const str
 	struct jaldi_hw *hw;
 	int error;
 
-	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);	
+	DBG_START_MSG;	
 	error = jaldi_init_softc(devid, sc, subsysid, bus_ops);
 	if (error != 0)
 		goto error_init;
@@ -349,7 +368,7 @@ int jaldi_init_device(u16 devid, struct jaldi_softc *sc, u16 subsysid, const str
 	hw = sc->hw;
 
 	/* Setup TX DMA */
-	error = jaldi_tx_init(sc, JALDI_NUM_TXBUF); // TODO
+	error = jaldi_tx_init(sc, JALDI_NUM_TXBUF);
 	if (error) { goto error_tx; }
 
 	/* Setup RX DMA */
@@ -374,7 +393,7 @@ error_init:
  */
 int jaldi_init_interrupts(struct jaldi_softc *sc)
 {
-	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);	
+	DBG_START_MSG;	
 	return 0;
 }
 
@@ -384,7 +403,7 @@ int jaldi_init_interrupts(struct jaldi_softc *sc)
 
 static void jaldi_deinit_softc(struct jaldi_softc *sc)
 {
-	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);	
+	DBG_START_MSG;	
 	int i = 0;
 
 	for (i = 0; i < JALDI_NUM_TX_QUEUES; i++)
@@ -399,7 +418,7 @@ static void jaldi_deinit_softc(struct jaldi_softc *sc)
 
 void jaldi_deinit_device(struct jaldi_softc *sc)
 {
-	jaldi_print(JALDI_DEBUG,"Entering '%s'\n", __FUNCTION__);	
+	DBG_START_MSG;	
 	jaldi_ps_wakeup(sc); 
 
 //	jaldi_rx_cleanup(sc); // TODO 

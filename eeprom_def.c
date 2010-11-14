@@ -89,6 +89,7 @@ static int jaldi_hw_def_get_eeprom_rev(struct jaldi_hw *hw)
 static bool jaldi_hw_def_fill_eeprom(struct jaldi_hw *hw)
 {
 #define SIZE_EEPROM_DEF (sizeof(struct ar5416_eeprom_def) / sizeof(u16))
+	DBG_START_MSG;
 	u16 *eep_data = (u16 *)&hw->eeprom.def;
 	int addr, ar5416_eep_start_loc = 0x100;
 

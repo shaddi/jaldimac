@@ -190,6 +190,7 @@ void jaldi_deinit_device(struct jaldi_softc *sc);
 int jaldi_init_interrupts(struct jaldi_softc *sc); 
 struct jaldi_txq *jaldi_txq_setup(struct jaldi_softc *sc, int qtype, int subtype);
 int jaldi_tx_setup(struct jaldi_softc *sc, int haltype);
+void jaldi_tx_cleanup(struct jaldi_softc *sc);
 
 int jaldi_descdma_setup(struct jaldi_softc *sc, struct jaldi_descdma *dd,
 		      struct list_head *head, const char *name,
