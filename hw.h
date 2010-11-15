@@ -14,6 +14,7 @@
 #include "phy.h"
 #include "mac.h"
 
+
 #define ATHEROS_VENDOR_ID	0x168c
 
 #define AR5416_DEVID_PCI	0x0023
@@ -394,11 +395,11 @@ struct jaldi_hw_capabilities {
 struct jaldi_bus_ops {
 	enum jaldi_bus_type type;
 	void (*read_cachesize)(struct jaldi_softc *sc, int *cache_size);
-	bool (*eeprom_read)(struct jaldi_softc *hw, u32 off, u16 *data);
+	bool (*eeprom_read)(struct jaldi_softc *sc, u32 off, u16 *data);
 };
 
 /**
- * struct jaldi_reg_ops - Register read/write operations
+ * struct jaldi_register_ops - Register read/write operations
  *        (formerly ath_ops)
  * @read: Register read
  * @write: Register write
@@ -503,7 +504,7 @@ struct jaldi_hw {
 	struct jaldi_hw_ops *ops;
 	struct jaldi_register_ops *reg_ops;
 	struct jaldi_bus_ops *bus_ops;
-	struct eeprom_ops *eep_ops; // This is more or less copied from ath9k
+	const struct eeprom_ops *eep_ops; // This is more or less copied from ath9k
 };
 
 int jaldi_hw_init(struct jaldi_hw *hw);

@@ -483,8 +483,9 @@ static void jaldi_hw_init_defaults(struct jaldi_hw *hw)
 	hw->hw_version.magic = AR5416_MAGIC;
 	hw->hw_version.subvendorid = 0;
 
-	hw->hw_flags = 0;
-	if (!AR_SREV_9100(hw)) { hw->hw_flags = AH_USE_EEPROM; }
+	/* 406 platform data patch */
+	//hw->hw_flags = 0;
+	//if (!AR_SREV_9100(hw)) { hw->hw_flags = AH_USE_EEPROM; }
 
 	hw->slottime = (u32) -1;
 	hw->ifstime = (u32) -1;

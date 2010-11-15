@@ -319,7 +319,9 @@ err:
 int jaldi_init_softc(u16 devid, struct jaldi_softc *sc, u16 subsysid, const struct jaldi_bus_ops *bus_ops)
 {
 	struct jaldi_hw *hw = NULL;
+	struct ath9k_platform_data *pdata;
 	int ret = 0;
+	int csz = 0;
 
 	DBG_START_MSG;	
 	hw = kzalloc(sizeof(struct jaldi_hw), GFP_KERNEL);
@@ -327,6 +329,12 @@ int jaldi_init_softc(u16 devid, struct jaldi_softc *sc, u16 subsysid, const stru
 
 	hw->hw_version.devid = devid;
 	hw->hw_version.subsysid = subsysid;
+
+	pdata = (struct ath9k_platform_data *) sc->dev->platform_data;
+	if (!pdata) {
+		jaldi_print(JALDI_DEBUG, "no pdev\n");
+		hw->hw_flags |= AH_USE_EEPROM;
+	}
 
 	hw->sc = sc;
 	sc->hw = hw;
@@ -340,12 +348,16 @@ int jaldi_init_softc(u16 devid, struct jaldi_softc *sc, u16 subsysid, const stru
 	spin_lock_init(&sc->sc_serial_rw);
 	/* init tasklets and other locks here */
 
+	hw->bus_ops->read_cachesize(sc, &csz); 
+
 	/* ath9k reads cache line size here... may be relevant */
 	ret = jaldi_hw_init(hw);
 	if (ret) goto err_hw;
 
 	ret = jaldi_init_queues(sc);
 	if (ret) goto err_queues;
+
+	return 0;
 	
 err_queues:
 	jaldi_hw_deinit(hw);
@@ -359,7 +371,6 @@ err_hw:
 
 int jaldi_init_device(u16 devid, struct jaldi_softc *sc, u16 subsysid, const struct jaldi_bus_ops *bus_ops)
 {
-	struct jaldi_hw *hw;
 	int error;
 
 	DBG_START_MSG;	
@@ -367,7 +378,6 @@ int jaldi_init_device(u16 devid, struct jaldi_softc *sc, u16 subsysid, const str
 	if (error != 0)
 		goto error_init;
 
-	hw = sc->hw;
 
 	/* Setup TX DMA */
 	error = jaldi_tx_init(sc, JALDI_NUM_TXBUF);

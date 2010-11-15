@@ -3,6 +3,7 @@
  */
  
 #include <linux/pci.h>
+#include <linux/ath9k_platform.h>
 #include "jaldi.h"
 
 /* device id table taken from ath9k/pci.c */
@@ -31,24 +32,39 @@ static void jaldi_pci_read_cachesize(struct jaldi_softc *sc, int *csz) {
 	if (*csz == 0) { *csz = DEFAULT_CACHELINE >> 2; }
 }
 
-static bool jaldi_pci_eeprom_read(struct jaldi_softc *sc, u8 off, u16 *data)
+static bool jaldi_pci_eeprom_read(struct jaldi_softc *sc, u32 off, u16 *data)
 {
-	struct jaldi_hw *hw = sc->hw;
-	hw->reg_ops->read(hw, AR5416_EEPROM_OFFSET + (off << AR5416_EEPROM_S));
+	u32 val;
+	struct ath9k_platform_data *pdata = sc->dev->platform_data;
 
-	if (!jaldi_hw_wait(hw,
+	if (pdata) {
+		if (off >= ARRAY_SIZE(pdata->eeprom_data)) {
+			jaldi_print(JALDI_FATAL, "%s: eeprom read failed, offset %08x is out of range.\n", 
+					__func__, off);
+		}
+
+		*data = pdata->eeprom_data[off];
+	} else {
+		jaldi_print(JALDI_WARN, "Uh-oh, not using pdata for eeprom_read. EEPROM probably ain't going to work.\n");
+		struct jaldi_hw *hw = sc->hw;
+
+		hw->reg_ops->read(hw, AR5416_EEPROM_OFFSET + (off << AR5416_EEPROM_S));
+
+		if (!jaldi_hw_wait(hw,
 			   AR_EEPROM_STATUS_DATA,
 			   AR_EEPROM_STATUS_DATA_BUSY | 
 			   AR_EEPROM_STATUS_DATA_PROT_ACCESS, 0,
 			   JALDI_WAIT_TIMEOUT))
 			   { return false; }
 
-	/* The value we have specified via the passed offset is placed
-	 * in this register. We save save the last two bytes of the value
-	 * we read, and no shift occurs (shift is 0). */
-	*data = MS(hw->reg_ops->read(hw, AR_EEPROM_STATUS_DATA), 
-		   AR_EEPROM_STATUS_DATA_VAL);
-
+		/* The value we have specified via the passed offset is placed
+		 * in this register. We save save the last two bytes of the value
+		 * we read, and no shift occurs (shift is 0). */
+		val = hw->reg_ops->read(hw, AR_EEPROM_STATUS_DATA);	 
+		*data = MS(val, AR_EEPROM_STATUS_DATA_VAL);
+	//	jaldi_print(JALDI_DEBUG, "pci_eeprom_read reg_off: %lx val: %8x data: %8x\n", 
+	//		(unsigned long)(AR5416_EEPROM_OFFSET + (off << AR5416_EEPROM_S)), val, *data);
+	}
 	return true;
 }
 
@@ -144,6 +160,7 @@ static int jaldi_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	sc->dev = &pdev->dev;
 	sc->mem = mem;
 
+
 	sc->sc_flags |= SC_OP_INVALID; // irq is not ready, don't try to use the device yet.
 
 	ret = request_irq(pdev->irq, jaldi_isr, IRQF_SHARED, "jaldi", sc);
@@ -154,6 +171,8 @@ static int jaldi_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		dev_err(&pdev->dev, "request_irq failed\n");
 		goto err_irq;
 	}
+
+	jaldi_print(JALDI_INFO, "sc->mem: %lx irq:%d\n", (unsigned long)mem, pdev->irq);
 
 	pci_read_config_word(pdev, PCI_SUBSYSTEM_ID, &subsysid);
 	ret = jaldi_init_device(id->device, sc, subsysid, &jaldi_pci_bus_ops); 
