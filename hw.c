@@ -334,6 +334,7 @@ static void jaldi_hw_disablepcie(struct jaldi_hw *hw)
 /* This should work for all families including legacy */
 static bool jaldi_hw_chip_test(struct jaldi_hw *hw)
 {
+	DBG_START_MSG;
 	u32 regAddr[2] = { AR_STA_ID0 };
 	u32 regHold[2];
 	u32 patternData[4] = { 0x55555555,
@@ -1069,7 +1070,8 @@ bool jaldi_hw_setpower(struct jaldi_hw *hw, enum jaldi_power_mode mode)
 		"NETWORK SLEEP",
 		"UNDEFINED"
 	};
-
+	DBG_START_MSG;
+	jaldi_print(JALDI_DEBUG, "power_mode %d\n", hw->power_mode);
 	if (hw->power_mode == mode)
 		return status;
 
@@ -1275,8 +1277,10 @@ static int jaldi_hw_post_init(struct jaldi_hw *hw)
 	if (!jaldi_hw_chip_test(hw)) { return -ENODEV; }
 
 	err = jaldi_hw_eeprom_init(hw);	
-	if (err != 0)
+	if (err != 0) {
+		jaldi_print(JALDI_DEBUG, "eeprom_init failed.\n");
 		return err;
+	}
 
 	jaldi_print(JALDI_INFO, "eeprom version %d, rev %d\n", 
 			hw->eep_ops->get_eeprom_ver(hw),
@@ -1363,6 +1367,8 @@ static int __jaldi_hw_init(struct jaldi_hw *hw)
 		return r;
 
 	hw->dev_state = JALDI_HW_INITIALIZED;
+
+	return 0;
 }
 
 /* hw init container. checks device is supported, then runs private init */

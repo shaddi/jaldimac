@@ -1421,6 +1421,9 @@ enum {
  * receive. The force RX abort bit will kill any frame which is currently being
  * transferred between the MAC and baseband. The RX block bit (AR_DIAG_RX_DIS)
  * will prevent any new frames from getting started.
+ * 
+ * This is also how we can disable acks and carrier sense (AR_DIAG_ACK_DIS and
+ * AR_DIAG_IGNORE_VIRT_CS, respectively).
  */
 #define AR_DIAG_SW                  0x8048
 #define AR_DIAG_CACHE_ACK           0x00000001

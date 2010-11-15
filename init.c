@@ -111,6 +111,8 @@ static unsigned int jaldi_ioread32(struct jaldi_hw *hw, u32 reg_offset) {
 		val = ioread32(sc->mem + reg_offset);
 	}
 
+//	jaldi_print(JALDI_DEBUG, "jaldi_ioread32: %8X\n", val);
+
 	return val;
 }
 

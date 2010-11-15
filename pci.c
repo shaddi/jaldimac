@@ -43,6 +43,9 @@ static bool jaldi_pci_eeprom_read(struct jaldi_softc *sc, u8 off, u16 *data)
 			   JALDI_WAIT_TIMEOUT))
 			   { return false; }
 
+	/* The value we have specified via the passed offset is placed
+	 * in this register. We save save the last two bytes of the value
+	 * we read, and no shift occurs (shift is 0). */
 	*data = MS(hw->reg_ops->read(hw, AR_EEPROM_STATUS_DATA), 
 		   AR_EEPROM_STATUS_DATA_VAL);
 
@@ -124,7 +127,7 @@ static int jaldi_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	
 	mem = pci_iomap(pdev, 0, 0);
 	if (!mem) {
-		printk(KERN_ERR "PCI memory map error\n") ;
+		jaldi_print(JALDI_FATAL, "PCI memory map error\n") ;
 		ret = -EIO;
 		goto err_iomap;
 	}
@@ -154,8 +157,10 @@ static int jaldi_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	pci_read_config_word(pdev, PCI_SUBSYSTEM_ID, &subsysid);
 	ret = jaldi_init_device(id->device, sc, subsysid, &jaldi_pci_bus_ops); 
-	if (!ret) 
+	if (ret) {
+		jaldi_print(JALDI_FATAL, "Failed to initialize device.\n");
 		goto err_init;
+	}
 
 	jaldi_print(JALDI_INFO, "pci probe done\n");
 
