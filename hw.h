@@ -499,6 +499,8 @@ struct jaldi_hw {
 	u8 analog_shiftreg;
 	int spurmode;
 	u16 spurchans[AR_EEPROM_MODAL_SPURS][2];
+	bool disable_acks;	/* disable hw generated acks */
+	bool disable_cs;	/* disable carrier sense */
 
 	/* functions to control hw */
 	struct jaldi_hw_ops *ops;

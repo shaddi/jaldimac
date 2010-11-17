@@ -157,7 +157,8 @@ struct jaldi_softc {
 	u16 ps_flags; /* powersave */
 	unsigned long ps_usecount;
 	u16 curtxpow; /* tx power (.5 dBm units) */
-	
+
+
 	/* netdev */
 	struct net_device_stats stats;
 	int status;
@@ -176,11 +177,18 @@ struct jaldi_softc {
 	// none at softc level yet...
 };
 
+static const struct net_device_ops jaldi_netdev_ops;
+
 // PCI/AHB init 
 int jaldi_pci_init(void);
 void jaldi_pci_exit(void);
 int jaldi_ahb_init(void);
 void jaldi_ahb_exit(void);
+
+/* netdev */
+struct net_device *jaldi_init_netdev(void);
+int jaldi_start_netdev(struct jaldi_softc *sc);
+void jaldi_attach_netdev_ops(struct net_device *dev);
 
 bool jaldi_setpower(struct jaldi_softc *sc, enum jaldi_power_mode mode);
 void jaldi_ps_wakeup(struct jaldi_softc *sc);

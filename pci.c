@@ -4,6 +4,7 @@
  
 #include <linux/pci.h>
 #include <linux/ath9k_platform.h>
+#include <linux/netdevice.h>
 #include "jaldi.h"
 
 /* device id table taken from ath9k/pci.c */
@@ -78,6 +79,7 @@ static int jaldi_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 {
 	void __iomem *mem;
 	struct jaldi_softc *sc;
+	struct net_device *jaldi_dev;	
 	u8 csz;
 	u16 subsysid;
 	u32 val;
@@ -148,14 +150,27 @@ static int jaldi_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto err_iomap;
 	}
 	
-	sc = kzalloc(sizeof(struct jaldi_softc), GFP_KERNEL); 
+	/* allocate and register net_dev, also allocs softc */
+	jaldi_dev = jaldi_init_netdev();
+
+	if (jaldi_dev < 0) {
+		jaldi_print(JALDI_FATAL, "could not init netdev\n");
+		goto err_alloc_hw;
+	}
+
+	sc = netdev_priv(jaldi_dev);
 
 	if (!sc) {
 		dev_err(&pdev->dev, "No memory for jaldi_softc\n");
 		ret = -ENOMEM;
-		goto err_alloc_hw;
+		goto err_no_softc;
 	}
 
+	
+	jaldi_print(JALDI_DEBUG, "jnd: %p jnd_priv: %p\n",
+			jaldi_dev, netdev_priv(jaldi_dev)); 
+	jaldi_print(JALDI_DEBUG, "sc->dev: %p sc: %p\n",
+			sc->net_dev, sc);
 	pci_set_drvdata(pdev, sc);
 	sc->dev = &pdev->dev;
 	sc->mem = mem;
@@ -173,6 +188,7 @@ static int jaldi_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	}
 
 	jaldi_print(JALDI_INFO, "sc->mem: %lx irq:%d\n", (unsigned long)mem, pdev->irq);
+	jaldi_print(JALDI_INFO, "irq:%d\n", ((struct jaldi_softc *)netdev_priv(sc->net_dev))->irq);
 
 	pci_read_config_word(pdev, PCI_SUBSYSTEM_ID, &subsysid);
 	ret = jaldi_init_device(id->device, sc, subsysid, &jaldi_pci_bus_ops); 
@@ -181,14 +197,25 @@ static int jaldi_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto err_init;
 	}
 
+	/* alright let's do this */
+	ret = jaldi_start_netdev(sc);
+	if (ret) {
+		jaldi_print(JALDI_FATAL, "Failed to register netdev\n");
+		goto err_start;
+	}
+
 	jaldi_print(JALDI_INFO, "pci probe done\n");
 
 	return 0;
 
+err_start:
+	jaldi_deinit_device(sc);	
 err_init:
 	free_irq(sc->irq, sc);
 err_irq:
-	kfree(sc);
+	/* nothing, init_netdev cleans itself up now */
+err_no_softc:
+	free_netdev(jaldi_dev);
 err_alloc_hw:
 	pci_iounmap(pdev, mem);
 err_iomap:
@@ -209,8 +236,12 @@ static void jaldi_pci_remove(struct pci_dev *pdev)
 	sc = pci_get_drvdata(pdev);
 	mem = sc->mem;
 
+	unregister_netdev(sc->net_dev);
+
 	jaldi_deinit_device(sc);
 	free_irq(sc->irq, sc);
+	
+	free_netdev(sc->net_dev);
 
 	pci_iounmap(pdev, mem);
 	pci_disable_device(pdev);

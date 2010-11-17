@@ -91,13 +91,6 @@ irqreturn_t jaldi_isr(int irq, void *dev)
 
 	
 
-int jaldi_open(struct net_device *dev)
-{
-	memcpy(dev->dev_addr, "\0JALDI0", ETH_ALEN);
-	netif_start_queue(dev);
-	return 0;
-}
-
 int jaldi_release(struct net_device *dev)
 {
 	netif_stop_queue(dev);
@@ -261,8 +254,11 @@ int jaldi_hw_ctl(struct jaldi_softc *sc, struct jaldi_packet *pkt) {
 int jaldi_hw_tx(struct jaldi_softc *sc, struct jaldi_packet *pkt)
 {
 	struct jaldi_buf bf;
+	struct jaldi_hw *hw;
 
 	DBG_START_MSG;
+
+	hw = sc->hw;
 
 	// TODO: set queue number in hw
 	// bf.txq = softc.txq[qnum];
@@ -319,9 +315,14 @@ int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 	int len;
 	char *data;
 	struct jaldi_softc *sc = netdev_priv(dev);
+	struct jaldi_hw *hw;
 	struct jaldi_packet *pkt;
 	
 	DBG_START_MSG;
+
+	hw = sc->hw;
+
+	jaldi_print(JALDI_DEBUG, "On IRQ %d\n", sc->irq);
 
 	data = skb->data;
 	len = skb->len;
@@ -385,12 +386,23 @@ void jaldi_setup_pool(struct net_device *dev)
 	return; /* TODO: Implement this */
 }
 
-struct net_device *jaldi_dev;
+/*
+ * TODO: this is where ifconfig starts our driver. we need to integrate this 
+ * with the rest of the driver. Should establish DMA, do the hw reset, all that
+ * jazz. This should also be where we call whatever actually disables the acks
+ * and carrier sense: that should not be done during HW initialization.
+ */
+int jaldi_open(struct net_device *dev)
+{
+
+	DBG_START_MSG;
+	memcpy(dev->dev_addr, "\0JALDI0", ETH_ALEN);
+	netif_start_queue(dev);
+	return 0;
+}
 
 void jaldi_cleanup(void)
 {
-	unregister_netdev(jaldi_dev);
-	free_netdev(jaldi_dev);
 	jaldi_ahb_exit();
 	jaldi_pci_exit();
 	return;
@@ -404,43 +416,16 @@ static const struct net_device_ops jaldi_netdev_ops =
 //	.ndo_get_stats			= jaldi_stats,
 };
 
-/* TODO move to init.c, or call the init there */
-void jaldi_init(struct net_device *dev)
+void jaldi_attach_netdev_ops(struct net_device *dev)
 {
-	struct jaldi_softc *sc;
-
-	DBG_START_MSG;
-
-	ether_setup(dev);
-
 	dev->netdev_ops = &jaldi_netdev_ops;
-	sc = netdev_priv(dev);
-
-	memset(sc,0,sizeof(struct jaldi_softc));
-	
-	spin_lock_init(&sc->sc_netdevlock);
-
-	sc->net_dev = dev;
-	
-	if(jaldi_init_interrupts(sc)) {
-		jaldi_print(JALDI_FATAL, "error initializing interrupt handlers\n");
-		return; 
-	}
-
-	jaldi_rx_ints(sc,1);
-	jaldi_tx_ints(sc,1);
-
-	jaldi_setup_pool(dev);
-	jaldi_print(JALDI_INFO, "jaldi_init end\n");
 }
-	
 
 int jaldi_init_module(void)
 {
 	int result, ret = -ENODEV;
 	DBG_START_MSG;
 	jaldi_print(JALDI_INFO, "Loading jaldimac. 2\n");
-	
 
 	result = jaldi_pci_init();
 	if (result < 0) {
@@ -448,40 +433,19 @@ int jaldi_init_module(void)
 		goto err_pci;
 	}
 
-	jaldi_print(JALDI_INFO, "pci_init returns %d\n", result);
+	jaldi_print(JALDI_DEBUG, "pci_init returns %d\n", result);
 
 	result = jaldi_ahb_init();
 	if (result < 0) {
 		jaldi_print(JALDI_WARN, "AHB init failed (jaldimac devices should pass this!)\n");
 		goto err_ahb;
 	}
-	jaldi_print(JALDI_INFO, "ahb_init returns %d\n", result);
+	jaldi_print(JALDI_DEBUG, "ahb_init returns %d\n", result);
 
+	ret = 0;
 
-	ret = -ENOMEM;
-	jaldi_dev = alloc_netdev(sizeof(struct jaldi_softc), "jaldi%d", jaldi_init);
-	if (jaldi_dev == NULL) {
-		printk(KERN_ERR "jaldi_dev is null");
-		goto err_alloc;
-	}	
-	jaldi_print(JALDI_DEBUG, "netdev allocated.\n");
-
-
-	result = register_netdev(jaldi_dev);
-	if (result) {
-		jaldi_print(JALDI_DEBUG, "error %i registering device \"%s\"\n", result, jaldi_dev->name);
-		goto err_register;
-	} else {
-		ret = 0;
-	}
-		
-	jaldi_print(JALDI_DEBUG, "netdev registered.\n");	
 	return ret;
 
-err_register:
-	free_netdev(jaldi_dev);
-err_alloc:
-	jaldi_ahb_exit();	
 err_ahb:
 	jaldi_pci_exit();
 err_pci:

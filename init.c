@@ -439,3 +439,77 @@ void jaldi_deinit_device(struct jaldi_softc *sc)
 }
 
 /* deinit of descdma could go here */
+
+
+/*******************/
+/*     net_dev     */
+/*******************/
+/* This is our alloc_netdev callback. It just sets up the softc memory 
+ * region in the netdev. We actually perform the rest of our device 
+ * initialization through our bus probe calls, which start in 
+ * jaldi_init_device. We call alloc_netdev during bus probe as well, but 
+ * we call init_device. */
+void jaldi_init(struct net_device *dev)
+{
+	struct jaldi_softc *sc;
+
+	DBG_START_MSG;
+
+	ether_setup(dev);
+
+	jaldi_attach_netdev_ops(dev);
+
+	jaldi_print(JALDI_DEBUG, "netdev_ops: %p\n", dev->netdev_ops->ndo_start_xmit);
+	sc = netdev_priv(dev);
+
+	memset(sc,0,sizeof(struct jaldi_softc));
+
+	sc->net_dev = dev;
+
+	jaldi_print(JALDI_DEBUG, "init sc: %p\n", sc);
+	
+	if(jaldi_init_interrupts(sc)) {
+		jaldi_print(JALDI_FATAL, "error initializing interrupt handlers\n");
+		return; 
+	}
+
+	jaldi_print(JALDI_INFO, "jaldi_init end\n");
+}
+
+/* Allocates and registers network device
+ * Also allocates memory for jaldi_softc 
+ */
+struct net_device *jaldi_init_netdev(void)
+{
+	struct net_device *jaldi_dev;
+
+	DBG_START_MSG;
+	jaldi_dev = alloc_netdev(sizeof(struct jaldi_softc), "jaldi%d", jaldi_init);
+	if (jaldi_dev == NULL) {
+		jaldi_print(JALDI_FATAL, "net_dev is null\n");
+		return -ENOMEM;
+	}
+
+	jaldi_print(JALDI_INFO, "netdev allocated.\n");
+
+	return jaldi_dev;
+}
+
+int jaldi_start_netdev(struct jaldi_softc *sc)
+{
+	int result;
+	struct net_device *ndev;
+
+	DBG_START_MSG;
+	ndev = sc->net_dev;
+
+	result = register_netdev(ndev);
+	if (result) {
+		jaldi_print(JALDI_FATAL, "error %i registering device \"%s\"\n", result, ndev->name);
+		return -ENOMEM;
+	}
+
+	jaldi_print(JALDI_INFO, "netdev registered.\n");	
+	
+	return 0;
+}

@@ -1,5 +1,6 @@
 #include <linux/platform_device.h>
 #include <linux/ath9k_platform.h>
+#include <linux/netdevice.h>
 #include "jaldi.h"
 
 static void jaldi_ahb_read_cachesize(struct jaldi_softc *sc, int *csz) {
@@ -35,6 +36,7 @@ static struct jaldi_bus_ops jaldi_ahb_bus_ops = {
 static int jaldi_ahb_probe(struct platform_device *pdev) {
 	void __iomem *mem;
 	struct jaldi_softc *sc;
+	struct net_device *jaldi_dev;
 	struct resource *res;
 	int irq;
 	int ret = 0;
@@ -71,12 +73,20 @@ static int jaldi_ahb_probe(struct platform_device *pdev) {
 
 	irq = res->start;
 
-	sc = kzalloc(sizeof(struct jaldi_softc), GFP_KERNEL);
+	/* allocate and register net_dev, also allocs softc */
+	jaldi_dev = jaldi_init_netdev();
+
+	if (jaldi_dev < 0) {
+		jaldi_print(JALDI_FATAL, "could not init netdev\n");
+		goto err_iounmap;
+	}
+
+	sc = netdev_priv(jaldi_dev);
 
 	if (!sc) {
 		dev_err(&pdev->dev, "no memory for jaldi_softc\n");
 		ret = -ENOMEM;
-		goto err_iounmap;
+		goto err_no_softc;
 	}
 
 	platform_set_drvdata(pdev,sc);
@@ -102,12 +112,25 @@ static int jaldi_ahb_probe(struct platform_device *pdev) {
 	hw = sc->hw; // pointer to jaldi_hw struct
 	//jaldi_hw_name(hw, hw_name, sizeof(hw_name)); // TODO
 	//printk(KERN_INFO "jaldi: %s mem=0x%1x, irq=%d\n", hw_name, (unsigned long)mem, irq);
+
+
+	/* alright let's do this */
+	ret = jaldi_start_netdev(sc);
+	if (ret) {
+		jaldi_print(JALDI_FATAL, "Failed to register netdev\n");
+		goto err_start;
+	}
+
 	return 0;
 
+err_start:
+	jaldi_deinit_device(sc);
 err_irq:
 	free_irq(irq, sc);
 err_free_hw:
 	platform_set_drvdata(pdev, NULL);
+err_no_softc:
+	free_netdev(jaldi_dev);
 err_iounmap:
 	iounmap(mem);
 err_out:
@@ -121,8 +144,12 @@ static int jaldi_ahb_remove(struct platform_device *pdev) {
 	if (sc) {
 		void __iomem *mem = sc->mem;
 
+		unregister_netdev(sc->net_dev);
+
 		jaldi_deinit_device(sc); 
 		free_irq(sc->irq, sc);
+
+		free_netdev(sc->net_dev);
 
 		iounmap(mem);
 		platform_set_drvdata(pdev,NULL);
