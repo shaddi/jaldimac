@@ -29,6 +29,7 @@
  * Because we (JaldiMAC) are not doing anything with calibration yet,
  * perhaps we can leverage this capability. TODO: does 9280 support this?
  */
+static struct jaldi_channel jaldi_2ghz_chantable[] = {};
 static struct jaldi_channel jaldi_5ghz_chantable[] = {
 	/* _We_ call this UNII 1 */
 	CHAN5G(5180, 14), /* Channel 36 */
@@ -346,6 +347,7 @@ int jaldi_init_softc(u16 devid, struct jaldi_softc *sc, u16 subsysid, const stru
 	spin_lock_init(&sc->sc_netdevlock);
 	spin_lock_init(&sc->sc_pm_lock);
 	spin_lock_init(&sc->sc_serial_rw);
+	mutex_init(&sc->mutex);
 	/* init tasklets and other locks here */
 
 	hw->bus_ops->read_cachesize(sc, &csz); 
@@ -353,6 +355,9 @@ int jaldi_init_softc(u16 devid, struct jaldi_softc *sc, u16 subsysid, const stru
 	/* ath9k reads cache line size here... may be relevant */
 	ret = jaldi_hw_init(hw);
 	if (ret) goto err_hw;
+
+	sc->chans[JALDI_2GHZ] = jaldi_2ghz_chantable;
+	sc->chans[JALDI_5GHZ] = jaldi_5ghz_chantable;
 
 	ret = jaldi_init_queues(sc);
 	if (ret) goto err_queues;
@@ -458,8 +463,9 @@ void jaldi_init(struct net_device *dev)
 	ether_setup(dev);
 
 	jaldi_attach_netdev_ops(dev);
+	dev->flags = IFF_NOARP;
+	dev->features = NETIF_F_NO_CSUM;
 
-	jaldi_print(JALDI_DEBUG, "netdev_ops: %p\n", dev->netdev_ops->ndo_start_xmit);
 	sc = netdev_priv(dev);
 
 	memset(sc,0,sizeof(struct jaldi_softc));

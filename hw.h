@@ -503,11 +503,15 @@ struct jaldi_hw {
 	bool disable_cs;	/* disable carrier sense */
 
 	/* functions to control hw */
-	struct jaldi_hw_ops *ops;
+	struct jaldi_hw_ops ops;
 	struct jaldi_register_ops *reg_ops;
 	struct jaldi_bus_ops *bus_ops;
 	const struct eeprom_ops *eep_ops; // This is more or less copied from ath9k
 };
+
+static inline struct jaldi_hw_ops *jaldi_get_hw_ops(struct jaldi_hw *hw) {
+	return &hw->ops;
+}
 
 int jaldi_hw_init(struct jaldi_hw *hw);
 void jaldi_hw_deinit(struct jaldi_hw *hw);
@@ -516,6 +520,7 @@ void jaldi_hw_init_global_settings(struct jaldi_hw *hw);
 bool jaldi_hw_intrpend(struct jaldi_hw *hw);
 bool jaldi_hw_wait(struct jaldi_hw *hw, u32 reg, u32 mask, u32 val, u32 timeout);
 
+void jaldi_hw_attach_phy_ops(struct jaldi_hw *hw);
 void jaldi_hw_get_channel_centers(struct jaldi_channel *chan, 
 				  struct chan_centers *centers);
 bool jaldi_hw_setpower(struct jaldi_hw *hw, enum jaldi_power_mode mode);

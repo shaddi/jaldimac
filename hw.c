@@ -490,6 +490,8 @@ static void jaldi_hw_init_defaults(struct jaldi_hw *hw)
 	hw->slottime = (u32) -1;
 	hw->ifstime = (u32) -1;
 	hw->globaltxtimeout = (u32) -1;
+	hw->disable_acks = true;
+	hw->disable_cs = true;
 	hw->power_mode = JALDI_PM_UNDEFINED;
 }
 
@@ -517,7 +519,8 @@ static int jaldi_hw_init_macaddr(struct jaldi_hw *hw) {
 static void jaldi_hw_init_pll(struct jaldi_hw *hw,
 			      struct jaldi_channel *chan)
 {
-	u32 pll = hw->ops->compute_pll_control(hw, chan);
+	DBG_START_MSG;
+	u32 pll = jaldi_get_hw_ops(hw)->compute_pll_control(hw, chan);
 
 	REG_WRITE(hw, AR_RTC_PLL_CONTROL, pll);
 
@@ -727,13 +730,13 @@ static bool jaldi_hw_chip_reset(struct jaldi_hw *hw,
 			return false;
 	} else if (!jaldi_hw_set_reset_reg(hw, JALDI_RESET_WARM))
 		return false;
-
+	OHAI;
 	if (!jaldi_hw_setpower(hw, JALDI_PM_AWAKE))
 		return false;
-
+	OHAI;
 	hw->chip_fullsleep = false;
 	jaldi_hw_init_pll(hw, chan);
-	hw->ops->set_rfmode(hw, chan);
+	jaldi_get_hw_ops(hw)->set_rfmode(hw, chan);
 
 	return true;
 }
@@ -753,15 +756,15 @@ static bool jaldi_hw_channel_change(struct jaldi_hw *hw,
 		}
 	}
 
-	if (!hw->ops->rfbus_req(hw)) {
+	if (!jaldi_get_hw_ops(hw)->rfbus_req(hw)) {
 		jaldi_print(JALDI_FATAL,
 			  "Could not kill baseband RX\n");
 		return false;
 	}
 
-	hw->ops->set_channel_regs(hw, chan);
+	jaldi_get_hw_ops(hw)->set_channel_regs(hw, chan);
 
-	r = hw->ops->rf_set_freq(hw, chan);
+	r = jaldi_get_hw_ops(hw)->rf_set_freq(hw, chan);
 	if (r) {
 		jaldi_print(JALDI_FATAL,
 			  "Failed to set channel\n");
@@ -775,12 +778,12 @@ static bool jaldi_hw_channel_change(struct jaldi_hw *hw,
 				0, 0,	// TODO: what should these values be?
 			     (u32) MAX_RATE_POWER);
 
-	hw->ops->rfbus_done(hw);
+	jaldi_get_hw_ops(hw)->rfbus_done(hw);
 
 	if (IS_CHAN_OFDM(chan) || IS_CHAN_HT(chan))
 //		ath9k_hw_set_delta_slope(hw, chan); // TODO
 
-	hw->ops->spur_mitigate_freq(hw, chan);
+	jaldi_get_hw_ops(hw)->spur_mitigate_freq(hw, chan);
 
 	/* TODO: we're not doing calibration yet.
 	if (!chan->oneTimeCalsDone)
@@ -790,7 +793,7 @@ static bool jaldi_hw_channel_change(struct jaldi_hw *hw,
 	return true;
 }
 
-static bool jaldi_hw_reset(struct jaldi_hw *hw, struct jaldi_channel *chan,
+int jaldi_hw_reset(struct jaldi_hw *hw, struct jaldi_channel *chan,
 				bool bChannelChange) {
 	/* Steps
 	 * 1. Save existing hw state (chainmask, channel, etc)
@@ -805,19 +808,23 @@ static bool jaldi_hw_reset(struct jaldi_hw *hw, struct jaldi_channel *chan,
 	 // chainmask save goes here
 	struct jaldi_channel *curchan = hw->curchan;
 
+	DBG_START_MSG;
+
 	if(!hw->chip_fullsleep) {
 		jaldi_hw_abortpcurecv(hw); 
 		if(!jaldi_hw_stopdmarecv(hw)) 
 			{ jaldi_print(0,"Failed to stop recv dma\n"); }
 	}
-	
+
+	OHAI;
 
 	if (!jaldi_hw_setpower(hw, JALDI_PM_AWAKE))
 		return -EIO;
 
-	if (curchan && !hw->chip_fullsleep)
+//	if (curchan && !hw->chip_fullsleep)
 //		jaldi_hw_getnf(hw, curchan); // TODO
 	
+	OHAI;
 
 	// load new noise floor info if we're changing the channel
 	if (bChannelChange &&
@@ -836,6 +843,7 @@ static bool jaldi_hw_reset(struct jaldi_hw *hw, struct jaldi_channel *chan,
 		}
 	}
 
+	OHAI;
 	
 	saveDefAntenna = REG_READ(hw, AR_DEF_ANTENNA);
 	if (saveDefAntenna == 0)
@@ -863,6 +871,8 @@ static bool jaldi_hw_reset(struct jaldi_hw *hw, struct jaldi_channel *chan,
 		return -EINVAL;
 	}
 
+	OHAI;
+
 	/* Only required on the first reset */
 	if (AR_SREV_9271(hw)) {
 		REG_WRITE(hw,
@@ -877,7 +887,7 @@ static bool jaldi_hw_reset(struct jaldi_hw *hw, struct jaldi_channel *chan,
 	if (!AR_SREV_9300_20_OR_LATER(hw))
 		jaldi_hw_enable_async_fifo(hw);
 
-	hw->ops->spur_mitigate_freq(hw, chan);
+	jaldi_get_hw_ops(hw)->spur_mitigate_freq(hw, chan);
 	hw->eep_ops->set_board_values(hw, chan);
 
 	jaldi_hw_set_operating_mode(hw, hw->opmode); // initially set in main
@@ -897,7 +907,7 @@ static bool jaldi_hw_reset(struct jaldi_hw *hw, struct jaldi_channel *chan,
 	REGWRITE_BUFFER_FLUSH(hw);
 	DISABLE_REGWRITE_BUFFER(hw);
 
-	r = hw->ops->rf_set_freq(hw, chan);
+	r = jaldi_get_hw_ops(hw)->rf_set_freq(hw, chan);
 	if (r)
 		return r;
 
@@ -1073,8 +1083,12 @@ bool jaldi_hw_setpower(struct jaldi_hw *hw, enum jaldi_power_mode mode)
 	};
 	DBG_START_MSG;
 	jaldi_print(JALDI_DEBUG, "power_mode %d\n", hw->power_mode);
-	if (hw->power_mode == mode)
+	if (hw->power_mode == mode) {
+		OHAI;
 		return status;
+	}
+
+	OHAI;
 
 	jaldi_print(JALDI_DEBUG, "%s -> %s\n",
 		  modes[hw->power_mode], modes[mode]);
@@ -1108,7 +1122,6 @@ int jaldi_hw_fill_cap_info(struct jaldi_hw *hw)
 {
 	DBG_START_MSG;
 	struct jaldi_hw_capabilities *pCap = &hw->caps;
-	OHAI;
 	u16 capField = 0, eeval;
 
 	capField = hw->eep_ops->get_eeprom(hw, EEP_OP_CAP);
@@ -1122,7 +1135,7 @@ int jaldi_hw_fill_cap_info(struct jaldi_hw *hw)
 	} else if ((eeval & AR5416_OPFLAGS_11G) != 0) {
 		jaldi_print(JALDI_WARN, "This hardware only supports the 2GHz band.\n");	
 	}
-	OHAI;
+
 	/* Read the wireless modes we support */
 	bitmap_zero(pCap->wireless_modes, JALDI_MODE_MAX);
 	
@@ -1141,7 +1154,6 @@ int jaldi_hw_fill_cap_info(struct jaldi_hw *hw)
 		}
 	}
 
-	OHAI;
 	if (eeval & AR5416_OPFLAGS_11G) {
 		set_bit(JALDI_MODE_11G, pCap->wireless_modes);
 		if (hw->ht_enable) {
@@ -1171,7 +1183,6 @@ int jaldi_hw_fill_cap_info(struct jaldi_hw *hw)
 	/* ath9k sets up crypto capabilities here (no eeprom read... just defaults 
 	 * apparently), but we're omitting those here. */
 
-	OHAI;
 	if (hw->ht_enable) /* set during hw_config_init */
 		pCap->hw_caps |= JALDI_HW_CAP_HT;
 	else
@@ -1190,7 +1201,6 @@ int jaldi_hw_fill_cap_info(struct jaldi_hw *hw)
 
 	pCap->hw_caps |= JALDI_HW_CAP_FASTCC;
 
-	OHAI;
 	if (AR_SREV_9285(hw) || AR_SREV_9271(hw))
 		pCap->tx_triglevel_max = MAX_TX_FIFO_THRESHOLD >> 1;
 	else
@@ -1212,7 +1222,6 @@ int jaldi_hw_fill_cap_info(struct jaldi_hw *hw)
 		pCap->rts_aggr_limit = (8 * 1024);
 	}
 
-	OHAI;
 	pCap->hw_caps |= JALDI_HW_CAP_ENHANCEDPM;
 /* This is throwing a compile error for some reason... we don't really care about rfkill for our purposes though.
 #if ((LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)) && defined(CONFIG_RFKILL) || defined(CONFIG_RFKILL_MODULE)) || ((LINUX_VERSION_CODE < KERNEL_VERSION(2,6,31)) && defined(CONFIG_RFKILL_BACKPORT) || defined(CONFIG_RFKILL_BACKPORT_MODULE))
@@ -1295,7 +1304,9 @@ static int jaldi_hw_post_init(struct jaldi_hw *hw)
 
 static void jaldi_hw_attach_ops(struct jaldi_hw *hw)
 {
-	/* todo... currently we don't do much w/ hw ops */ 	
+	DBG_START_MSG;
+	jaldi_hw_attach_phy_ops(hw);
+	DBG_END_MSG;
 }
 
 static int __jaldi_hw_init(struct jaldi_hw *hw)

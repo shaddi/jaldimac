@@ -404,6 +404,8 @@ static u32 ar9002_hw_compute_pll_control(struct jaldi_hw *hw,
 {
 	u32 pll;
 
+	DBG_START_MSG;
+
 	pll = SM(0x5, AR_RTC_9160_PLL_REFDIV);
 
 	if (chan && IS_CHAN_HALF_RATE(chan))
@@ -428,6 +430,7 @@ static u32 ar9002_hw_compute_pll_control(struct jaldi_hw *hw,
 static u32 ar9100_hw_compute_pll_control(struct jaldi_hw *hw,
 					 struct jaldi_channel *chan)
 {
+	DBG_START_MSG;
 	if (chan && IS_CHAN_5GHZ(chan))
 		return 0x1450;
 	return 0x1458;
@@ -438,6 +441,7 @@ static u32 ar9160_hw_compute_pll_control(struct jaldi_hw *hw,
 {
 	u32 pll;
 
+	DBG_START_MSG;
 	pll = SM(0x5, AR_RTC_9160_PLL_REFDIV);
 
 	if (chan && IS_CHAN_HALF_RATE(chan))
@@ -458,6 +462,7 @@ static u32 ar5008_hw_compute_pll_control(struct jaldi_hw *hw,
 {
 	u32 pll;
 
+	DBG_START_MSG;
 	pll = AR_RTC_PLL_REFDIV_5 | AR_RTC_PLL_DIV2;
 
 	if (chan && IS_CHAN_HALF_RATE(chan))
@@ -559,7 +564,7 @@ static void ar5008_hw_rfbus_done(struct jaldi_hw *hw)
 
 void jaldi_hw_attach_phy_ops(struct jaldi_hw *hw)
 {
-	struct jaldi_hw_ops *ops = hw->ops;
+	struct jaldi_hw_ops *ops = jaldi_get_hw_ops(hw);
 
 	ops->rf_set_freq = jaldi_hw_set_freq;
 	ops->spur_mitigate_freq = jaldi_hw_spur_mitigate;
@@ -578,7 +583,6 @@ void jaldi_hw_attach_phy_ops(struct jaldi_hw *hw)
 		ops->compute_pll_control = ar9160_hw_compute_pll_control;
 	else
 		ops->compute_pll_control = ar5008_hw_compute_pll_control;
-	
 }
 
 /*

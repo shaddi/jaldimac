@@ -89,7 +89,7 @@ enum jaldi_packet_type {
 
 struct jaldi_packet {
 	struct jaldi_packet *next;
-	struct net_device *dev;
+	struct jaldi_softc *sc;
 	struct sk_buff *skb;
 	int jaldi_packet_type;
 	int datalen;
@@ -147,6 +147,7 @@ struct jaldi_softc {
 	struct jaldi_hw *hw; // from ath9k_hw, hw main struct
 	void __iomem *mem; // see pci_iomap and lwn article
 	int irq; // irq number...
+	struct mutex mutex;
 	spinlock_t sc_resetlock;
 	spinlock_t sc_serial_rw;
 	spinlock_t sc_pm_lock;
@@ -157,6 +158,8 @@ struct jaldi_softc {
 	u16 ps_flags; /* powersave */
 	unsigned long ps_usecount;
 	u16 curtxpow; /* tx power (.5 dBm units) */
+
+	struct jaldi_channel *chans[2];
 
 
 	/* netdev */
@@ -190,6 +193,7 @@ struct net_device *jaldi_init_netdev(void);
 int jaldi_start_netdev(struct jaldi_softc *sc);
 void jaldi_attach_netdev_ops(struct net_device *dev);
 
+int jaldi_hw_reset(struct jaldi_hw *hw, struct jaldi_channel *chan, bool bChannelChange);
 bool jaldi_setpower(struct jaldi_softc *sc, enum jaldi_power_mode mode);
 void jaldi_ps_wakeup(struct jaldi_softc *sc);
 int jaldi_init_softc(u16 devid, struct jaldi_softc *sc, u16 subsysid, const struct jaldi_bus_ops *bus_ops);

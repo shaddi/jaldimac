@@ -16,7 +16,8 @@
 #define WHERESTR "[file %s, line %d]: "
 #define WHEREARG __FILE__, __LINE__
 #define DBG_START_MSG jaldi_print(JALDI_DEBUG,"---> Entering '%s' [file %s, line %d]\n", __FUNCTION__, WHEREARG)
-#define	OHAI jaldi_print(JALDI_DEBUG,"%s [file %s, line %d]\n", __FUNCTION__, WHEREARG)
+#define DBG_END_MSG jaldi_print(JALDI_DEBUG,"<--- Exiting '%s' [file %s, line %d]\n", __FUNCTION__, WHEREARG)
+#define	OHAI jaldi_print(JALDI_DEBUG,"OHAI! %s [file %s, line %d]\n", __FUNCTION__, WHEREARG)
 
 enum JALDI_DEBUG_LEVEL {
 	JALDI_DEBUG,

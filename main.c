@@ -322,8 +322,6 @@ int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 
 	hw = sc->hw;
 
-	jaldi_print(JALDI_DEBUG, "On IRQ %d\n", sc->irq);
-
 	data = skb->data;
 	len = skb->len;
 	
@@ -338,8 +336,8 @@ int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 		return 0;
 	}
 	
-	pkt->dev = dev;
 	pkt->next = NULL; /* XXX */
+	pkt->sc = sc;
 	pkt->data = skb->data;
 	pkt->tx_time = get_jaldi_tx_from_skb(skb);
 	pkt->qos_type = jaldi_get_qos_type_from_skb(skb);
@@ -394,11 +392,39 @@ void jaldi_setup_pool(struct net_device *dev)
  */
 int jaldi_open(struct net_device *dev)
 {
+	struct jaldi_softc *sc = netdev_priv(dev);
+	struct jaldi_hw *hw = sc->hw;
+	struct jaldi_channel *init_chan;
+	int r;
 
 	DBG_START_MSG;
+
+	mutex_lock(&sc->mutex);
+
+	/* set default channel if none specified */
+	if (!hw->curchan) {
+		init_chan = &sc->chans[JALDI_5GHZ][0]; /* default is chan 36 (5180Mhz, 14) */
+		hw->curchan = init_chan;
+	}
+
 	memcpy(dev->dev_addr, "\0JALDI0", ETH_ALEN);
+
+	spin_lock_bh(&sc->sc_resetlock);
+	r = jaldi_hw_reset(hw, init_chan, true); /* we're settnig channel for first time so always true */
+	if (r) {
+		jaldi_print(JALDI_FATAL, "Unable to reset hw; reset status %d (freq %u MHz)\n",
+				r, init_chan->center_freq);
+		spin_unlock_bh(&sc->sc_resetlock);
+		goto mutex_unlock;
+	}
+	spin_unlock_bh(&sc->sc_resetlock);
+
 	netif_start_queue(dev);
-	return 0;
+
+mutex_unlock:
+	mutex_unlock(&sc->mutex);
+
+	return r;
 }
 
 void jaldi_cleanup(void)
