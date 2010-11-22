@@ -263,7 +263,6 @@ int jaldi_descdma_setup(struct jaldi_softc *sc, struct jaldi_descdma *dd,
 			}
 		}
 		list_add_tail(&bf->list, head);
-		list_add_tail(&bf->list, head);
 	}
 	return 0;
 fail2:

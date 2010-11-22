@@ -38,7 +38,7 @@ MAKE_OPTS:= \
 	
 define Build/Prepare
 	rm -rf $(PKG_BUILD_DIR)
-	cp -pr /home/shaddi/Code/jaldi-openwrt/jaldi/jaldi/kerneldriver $(KERNEL_BUILD_DIR)
+	cp -pr /home/shaddi/Code/jaldi-openwrt/jaldi/jaldi/kerneldriver $(KERNEL_BUILD_DIR)/jaldi
 	#rm -rf $(PKG_BUILD_DIR)/.git $(PKG_BUILD_DIR)/OpenWRT_Makefile
 endef
 

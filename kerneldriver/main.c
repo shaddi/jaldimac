@@ -224,12 +224,23 @@ void jaldi_tx_cleanupq(struct jaldi_softc *sc, struct jaldi_txq *txq)
 	sc->tx.txqsetup &= ~(1<<txq->axq_qnum);
 }
 
+static int jaldi_tx_setup_buffer(struct jaldi_softc *sc, struct jaldi_buf *bf,
+					struct jaldi_pkt *pkt)
+{
+	struct jaldi_hw *hw = sc->hw;
+
+	JALDI_TXBUF_RESET(bf);
+
+	bf->
+
+}
+
 static struct jaldi_buf *jaldi_tx_get_buffer(struct jaldi_softc *sc)
 {
 	struct jaldi_buf *bf = NULL;
 
 	spin_lock_bh(&sc->tx.txbuflock);
-	
+
 	if (unlikely(list_empty(&sc->tx.txbuf))) {
 		spin_unlock_bh(&sc->tx.txbuflock);
 		jaldi_print(JALDI_DEBUG, "txbuf list empty\n");
@@ -276,12 +287,19 @@ int jaldi_hw_tx(struct jaldi_softc *sc, struct jaldi_packet *pkt)
 {
 	struct jaldi_buf bf;
 	struct jaldi_hw *hw;
+	int r;
 
 	DBG_START_MSG;
 
 	hw = sc->hw;
 	
 	bf = jaldi_tx_get_buffer(sc);	
+	if (!bf) {
+		jaldi_print(JALDI_ALERT, "TX buffers are full\n");
+		return -1;
+	}
+
+	r = jaldi_tx_setup_buffer(hw, bf, pkt);
 
 
 	// TODO: set queue number in hw
