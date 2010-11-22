@@ -60,6 +60,21 @@
 #define SC_OP_BT_PRIORITY_DETECTED   BIT(12)
 #define SC_OP_BT_SCAN                BIT(13)
 
+/*************************/
+/* Descriptor Management */
+/*************************/
+
+#define JALDI_TXBUF_RESET(_bf) do {				\
+		memset(&((_bf)), 0, sizeof(struct jaldi_buf));  \
+		(_bf)->bf_stale = false;			\
+		(_bf)->bf_lastbf = NULL;			\
+		(_bf)->bf_next = NULL;				\
+	} while (0)
+
+#define JALDI_RXBUF_RESET(_bf) do {		\
+		(_bf)->bf_stale = false;	\
+	} while (0)
+
 /***********/
 /* RX / TX */
 /***********/
@@ -92,26 +107,37 @@ struct jaldi_packet {
 	struct jaldi_softc *sc;
 	struct sk_buff *skb;
 	int jaldi_packet_type;
+	struct jaldi_txq *txq;
 	int datalen;
 	char *data;
 	s64 tx_time; /* the time at which this packet should be sent */
 	int qos_type;
 };
 
-/* This does not provide support for aggregates as ath9k does */
 struct jaldi_buf {
 	struct list_head list;
+
+	struct jaldi_buf *bf_lastbf;    /* for aggregation, the last bf */
+	struct jaldi_buf *bf_next;
 
 	void *bf_desc;			/* virtual addr of desc */
 	dma_addr_t bf_daddr;		/* physical addr of desc */
 	dma_addr_t bf_buf_addr;		/* physical addr of data buffer */
 	dma_addr_t bf_dma_context;
-	struct jaldi_packet *bf_mpdu; 	/* MAC protocol data unit: raw sk_buff enclosed */
-	struct jaldi_txq *txq;
-	struct jaldi_hw *hw;
+	struct sk_buff *bf_mpdu; 	/* MAC protocol data unit */
 	
-	// currently unused...
 	bool bf_stale;
+	bool bf_tx_aborted;
+	
+	/* buffer state */
+	int bf_nframes;
+	u16 bf_al;
+	u16 bf_frmlen;
+	int bf_seqno;
+	int bf_tidno;
+	int bf_retries;
+	u8 bf_type;
+
 	u16 bf_flags;
 };
 

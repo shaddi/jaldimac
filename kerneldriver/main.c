@@ -2,7 +2,6 @@
  * jaldi 
  */
  
-
 #include <linux/init.h>
 #include <linux/moduleparam.h>
 #include <linux/module.h>
@@ -203,6 +202,8 @@ int jaldi_tx_setup(struct jaldi_softc *sc, int haltype)
 {
 	struct jaldi_txq *txq;
 
+	DBG_START_MSG;
+
 	if (haltype >= ARRAY_SIZE(sc->tx.hwq_map)) {
 		jaldi_print(JALDI_FATAL,
 			  "HAL AC %u out of range, max %zu!\n",
@@ -221,6 +222,26 @@ void jaldi_tx_cleanupq(struct jaldi_softc *sc, struct jaldi_txq *txq)
 {
 	jaldi_hw_releasetxqueue(sc->hw, txq->axq_qnum);
 	sc->tx.txqsetup &= ~(1<<txq->axq_qnum);
+}
+
+static struct jaldi_buf *jaldi_tx_get_buffer(struct jaldi_softc *sc)
+{
+	struct jaldi_buf *bf = NULL;
+
+	spin_lock_bh(&sc->tx.txbuflock);
+	
+	if (unlikely(list_empty(&sc->tx.txbuf))) {
+		spin_unlock_bh(&sc->tx.txbuflock);
+		jaldi_print(JALDI_DEBUG, "txbuf list empty\n");
+		return NULL;
+	}
+
+	bf = list_first_entry(&sc->tx.txbuf, struct jaldi_buf, list);
+	list_del(&bf->list);
+
+	spin_unlock_bh(&sc->tx.txbuflock);
+
+	return bf;
 }
 
 int get_jaldi_tx_from_skb(struct sk_buff *skb) {
@@ -259,6 +280,9 @@ int jaldi_hw_tx(struct jaldi_softc *sc, struct jaldi_packet *pkt)
 	DBG_START_MSG;
 
 	hw = sc->hw;
+	
+	bf = jaldi_tx_get_buffer(sc);	
+
 
 	// TODO: set queue number in hw
 	// bf.txq = softc.txq[qnum];
@@ -312,7 +336,7 @@ int jaldi_hw_tx(struct jaldi_softc *sc, struct jaldi_packet *pkt)
  */
 int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 {
-	int len;
+	int len, qnum;
 	char *data;
 	struct jaldi_softc *sc = netdev_priv(dev);
 	struct jaldi_hw *hw;
@@ -326,8 +350,11 @@ int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 	len = skb->len;
 	
 	dev->trans_start = jiffies;
-	
-	sc->skb = skb;
+
+	if(unlikely(hw->power_mode != JALDI_PM_AWAKE)) {
+		jaldi_ps_wakeup(sc);
+		jaldi_print(JALDI_DEBUG, "Waking up to do TX\n");
+	}
 	
 	/* create jaldi packet */
 	pkt = kmalloc (sizeof (struct jaldi_packet), GFP_KERNEL);
@@ -341,10 +368,11 @@ int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 	pkt->data = skb->data;
 	pkt->tx_time = get_jaldi_tx_from_skb(skb);
 	pkt->qos_type = jaldi_get_qos_type_from_skb(skb);
+	pkt->txq = &sc->tx.txq[qnum]; /* replaces need for txctl from ath9k */
+
 	
 	/* add jaldi packet to tx_queue */
-	jaldi_tx_enqueue(sc,pkt); // should add packet to proper software queue
-
+	//jaldi_tx_enqueue(sc,pkt); // should add packet to proper software queue
 
 	/* create kernel timer for packet transmission */
 /*	struct timer_list tx_timer;

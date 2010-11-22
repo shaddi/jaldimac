@@ -730,10 +730,10 @@ static bool jaldi_hw_chip_reset(struct jaldi_hw *hw,
 			return false;
 	} else if (!jaldi_hw_set_reset_reg(hw, JALDI_RESET_WARM))
 		return false;
-	OHAI;
+
 	if (!jaldi_hw_setpower(hw, JALDI_PM_AWAKE))
 		return false;
-	OHAI;
+
 	hw->chip_fullsleep = false;
 	jaldi_hw_init_pll(hw, chan);
 	jaldi_get_hw_ops(hw)->set_rfmode(hw, chan);
@@ -815,8 +815,6 @@ int jaldi_hw_reset(struct jaldi_hw *hw, struct jaldi_channel *chan,
 		if(!jaldi_hw_stopdmarecv(hw)) 
 			{ jaldi_print(0,"Failed to stop recv dma\n"); }
 	}
-
-	OHAI;
 
 	if (!jaldi_hw_setpower(hw, JALDI_PM_AWAKE))
 		return -EIO;
