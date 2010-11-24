@@ -1,0 +1,6 @@
+// Station configuration
+#define $HOST_IP 192.168.0.2
+#define $HOST_MAC 00:11:22:33:44:55
+#define $PROXY_ARP_NETWORK 192.168.0.2
+
+#include "generic-station.slickh"

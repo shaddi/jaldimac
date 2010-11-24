@@ -1,4 +1,4 @@
-CLICK_CONFIGURATIONS=jaldimac-master
+CLICK_CONFIGURATIONS=master station-1 station-2 station-3 station-4
 CLICK_CONFIGURATION_FILES=$(addprefix $(OUTPUT)/,$(addsuffix .click,$(CLICK_CONFIGURATIONS)))
 CLICK_CONFIGURATION_DOT=$(addprefix $(OUTPUT)/,$(addsuffix .dot,$(CLICK_CONFIGURATIONS)))
 CLICK_CONFIGURATION_GRAPH=$(addprefix $(OUTPUT)/,$(addsuffix .pdf,$(CLICK_CONFIGURATIONS)))

@@ -1,0 +1,12 @@
+// Master configuration
+#define $HOST_IP 192.168.0.1
+#define $HOST_MAC 00:11:22:33:44:55
+#define $PROXY_ARP_NETWORK 192.168.0.1/24
+
+// Station configuration
+#define $STATION_1_IP 192.168.0.2
+#define $STATION_2_IP 192.168.0.3
+#define $STATION_3_IP 192.168.0.4
+#define $STATION_4_IP 192.168.0.5
+
+#include "generic-master.slickh"
