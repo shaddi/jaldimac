@@ -532,11 +532,6 @@ struct ar5416_desc {
 #define AR_DecryptBusyErr   0x40000000
 #define AR_KeyMiss          0x80000000
 
-enum jaldi_pkt_type {
-	JALDI_PKT_TYPE_NORMAL = 0, /* all packets that are tx'd are of this type */
-	JALDI_PKT_TYPE_CONTROL,    /* packets used to set an internal setting (not tx'd) */
-};
-
 #define	JALDI_NUM_TX_QUEUES 10
 
 enum jaldi_tx_queue_flags {

@@ -199,6 +199,7 @@
 /* calibration */
 #define NUM_NF_READINGS		6
 
+enum jaldi_pkt_type;
 struct jaldi_softc; 
 
 // closely based upon ath9k_hw_version (a9k/hw.h)
@@ -524,4 +525,11 @@ void jaldi_hw_attach_phy_ops(struct jaldi_hw *hw);
 void jaldi_hw_get_channel_centers(struct jaldi_channel *chan, 
 				  struct chan_centers *centers);
 bool jaldi_hw_setpower(struct jaldi_hw *hw, enum jaldi_power_mode mode);
+void jaldi_hw_set11n_txdesc(struct jaldi_hw *hw, void *ds,
+				    u32 pktLen, enum jaldi_pkt_type type,
+				    u32 txPower, u32 flags);
+void jaldi_hw_fill_txdesc(struct jaldi_hw *hw, struct jaldi_desc *ds, u32 seglen,
+				  bool is_firstseg, bool is_lastseg,
+				  const struct jaldi_desc *ds0, dma_addr_t buf_addr,
+				  unsigned int qcu);
 #endif

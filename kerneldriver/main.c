@@ -225,35 +225,65 @@ void jaldi_tx_cleanupq(struct jaldi_softc *sc, struct jaldi_txq *txq)
 }
 
 static int jaldi_tx_setup_buffer(struct jaldi_softc *sc, struct jaldi_buf *bf,
-					struct jaldi_pkt *pkt)
+					struct jaldi_packet *pkt)
 {
-	struct jaldi_hw *hw = sc->hw;
+
+
+	DBG_START_MSG;
 
 	JALDI_TXBUF_RESET(bf);
 
-	bf->
+	jaldi_print(JALDI_DEBUG, "len: %d\n", pkt->skb->len);
+	bf->bf_frmlen = pkt->skb->len; /* TODO: should we add space for fcs? */
 
+	bf->bf_mpdu = pkt->skb;
+
+	jaldi_print(JALDI_DEBUG, "dev: %p data: %p len: %d\n", sc->dev, pkt->skb->data, pkt->skb->len);
+	bf->bf_dmacontext = dma_map_single(sc->dev, pkt->skb->data, 
+				pkt->skb->len, DMA_TO_DEVICE);
+
+	if(unlikely(dma_mapping_error(sc->dev, bf->bf_dmacontext))) {
+		bf->bf_mpdu = NULL;
+		jaldi_print(JALDI_FATAL, "dma_mapping_error() on TX\n");
+		return -ENOMEM;
+	}
+
+	bf->bf_buf_addr = bf->bf_dmacontext;
+
+	bf->bf_tx_aborted = false;
+	DBG_END_MSG;
+	return 0;
 }
 
 static struct jaldi_buf *jaldi_tx_get_buffer(struct jaldi_softc *sc)
 {
 	struct jaldi_buf *bf = NULL;
 
-	spin_lock_bh(&sc->tx.txbuflock);
+	DBG_START_MSG;
 
+	spin_lock_bh(&sc->tx.txbuflock);
 	if (unlikely(list_empty(&sc->tx.txbuf))) {
 		spin_unlock_bh(&sc->tx.txbuflock);
 		jaldi_print(JALDI_DEBUG, "txbuf list empty\n");
 		return NULL;
 	}
-
 	bf = list_first_entry(&sc->tx.txbuf, struct jaldi_buf, list);
 	list_del(&bf->list);
 
 	spin_unlock_bh(&sc->tx.txbuflock);
 
+	DBG_END_MSG;
+
 	return bf;
 }
+
+static void jaldi_tx_return_buffer(struct jaldi_softc *sc, struct jaldi_buf *bf)
+{
+	spin_lock_bh(&sc->tx.txbuflock);
+	list_add_tail(&bf->list, &sc->tx.txbuf);
+	spin_unlock_bh(&sc->tx.txbuflock);
+}
+
 
 int get_jaldi_tx_from_skb(struct sk_buff *skb) {
 	return 0; // TODO: decide on a packet format and implement this by reading protocol header field
@@ -262,7 +292,7 @@ int get_jaldi_tx_from_skb(struct sk_buff *skb) {
 int jaldi_pkt_type(struct jaldi_packet *pkt)
 {
 	// TODO : define format and check for potential control pkt
-	return JALDI_DATA;
+	return JALDI_PKT_TYPE_NORMAL;
 }
 
 // TODO: should return appropriate type
@@ -277,6 +307,75 @@ int jaldi_hw_ctl(struct jaldi_softc *sc, struct jaldi_packet *pkt) {
 	return 0;
 }
 
+static void jaldi_tx_txqaddbuf(struct jaldi_softc *sc, struct jaldi_txq *txq,
+				struct list_head *head) 
+{
+	struct jaldi_hw *hw;
+	struct jaldi_buf *bf;
+
+	DBG_START_MSG;
+
+	if (list_empty(head)) 
+		return;
+
+	hw = sc->hw;
+
+	bf = list_first_entry(head, struct jaldi_buf, list);
+
+	list_splice_tail_init(head, &txq->axq_q);
+	
+	if (txq->axq_link == NULL) {
+		jaldi_hw_puttxbuf(hw, txq->axq_qnum, bf->bf_daddr);
+		jaldi_print(JALDI_DEBUG, "TXDP[%u] = %llx (%p)\n",
+				txq->axq_qnum, ito64(bf->bf_daddr),
+				bf->bf_desc);
+	} else {
+		*txq->axq_link = bf->bf_daddr;
+		jaldi_print(JALDI_DEBUG, "link[%u] (%p)=%llx (%p)\n",
+				txq->axq_qnum, txq->axq_link,
+				ito64(bf->bf_daddr), bf->bf_desc);
+	}
+
+	txq->axq_link = &((struct jaldi_desc *)bf->bf_lastbf->bf_desc)->ds_link; // get_desc_link
+
+	jaldi_hw_txstart(hw, txq->axq_qnum);
+
+	txq->axq_depth++;
+}
+
+static void jaldi_tx_start_dma(struct jaldi_softc *sc, struct jaldi_packet *pkt, 
+				struct jaldi_buf *bf)
+{
+	struct jaldi_desc *ds;
+	struct list_head bf_head;
+	struct jaldi_hw *hw;
+
+	DBG_START_MSG;
+
+	hw = sc->hw;
+
+	INIT_LIST_HEAD(&bf_head);
+	OHAI;
+	list_add_tail(&bf->list, &bf_head);
+	OHAI;
+	ds = bf->bf_desc;
+	OHAI;
+	ds->ds_link = 0; /* hw_set_desc_link */
+	OHAI;
+	jaldi_hw_set11n_txdesc(hw, ds, bf->bf_frmlen, pkt->type, MAX_RATE_POWER, bf->bf_flags);
+	jaldi_hw_fill_txdesc(hw, ds, pkt->skb->len, true, true, ds, bf->bf_buf_addr, pkt->txq->axq_qnum);
+	OHAI;
+	spin_lock_bh(&pkt->txq->axq_lock);
+
+	/* TODO: aggregates are handled seperately in ath9k */
+
+	bf->bf_lastbf = bf;
+	bf->bf_nframes = 1;
+	jaldi_tx_txqaddbuf(sc, pkt->txq, &bf_head);
+	
+	spin_unlock_bh(&pkt->txq->axq_lock);
+}
+
 /* This method basically does the following:
  * - assigns skb to hw buffer
  * - sets up tx flags based on current config
@@ -285,8 +384,9 @@ int jaldi_hw_ctl(struct jaldi_softc *sc, struct jaldi_packet *pkt) {
  */
 int jaldi_hw_tx(struct jaldi_softc *sc, struct jaldi_packet *pkt)
 {
-	struct jaldi_buf bf;
+	struct jaldi_buf *bf;
 	struct jaldi_hw *hw;
+	struct list_head bf_head;
 	int r;
 
 	DBG_START_MSG;
@@ -299,48 +399,17 @@ int jaldi_hw_tx(struct jaldi_softc *sc, struct jaldi_packet *pkt)
 		return -1;
 	}
 
-	r = jaldi_tx_setup_buffer(hw, bf, pkt);
+	r = jaldi_tx_setup_buffer(sc, bf, pkt);
 
-
-	// TODO: set queue number in hw
-	// bf.txq = softc.txq[qnum];
-
-	// TODO: set config tx flags
-
-	// setup buffer
-	/* this is all out of date. see new xmit stuff.
-	memset(&bf, 0, sizeof(struct jaldi_buf));
-
-	jaldi_print(JALDI_DEBUG, WHERESTR, WHEREARG);
-	bf.bf_dma_context = dma_map_single(sc->dev, pkt->skb->data, 
-						pkt->skb->len, DMA_TO_DEVICE);
-
-	jaldi_print(JALDI_DEBUG, WHERESTR, WHEREARG);
-	if(unlikely(dma_mapping_error(sc->dev, bf.bf_dma_context))) {
-		jaldi_print(JALDI_WARN, "dma_mapping_error during TX\n");
-		return -ENOMEM;
+	if (unlikely(r)) {
+		jaldi_print(JALDI_FATAL, "TX mem alloc failure\n");
+		jaldi_tx_return_buffer(sc, bf);
 	}
 
-	jaldi_print(JALDI_DEBUG, WHERESTR, WHEREARG);
-	bf.bf_buf_addr = bf.bf_dma_context;
-	*/
-
+	// do a check to make sure the qeueu we're on doesn't exceed our max length... TODO
 	
-
-/* Note to self: goal here is to get an sk_buff into a jaldi_buf, which encapsulates
- all the relevant /device/ specific information: dma stuff, etc. We need to couple this
- with a jaldi_tx_control which ensures the proper tx settings go with the sk_buff and push
- this to the device. 
-
- In short, the jaldi_buf represents an encapsulation of data that takes care of all the
- dma stuff. The jaldi_tx_control encapsulates all the tx settings we need: channel, power, the
- hardware queue we're on (WMA_BE or WMA_BK or WMA_VO). The sk_buff should really be in a 
- jaldi_packet, which will encapsulate the driver logic: which virtual queue we're on.
-
- This function should do everything needed to move a jaldi_packet into dma. The tx interrupt
- handler should drain the low level queues and initiate transmission over the air.
- */
-
+	jaldi_tx_start_dma(sc, pkt, bf);
+	
 	return 0;
 }
 
@@ -384,6 +453,7 @@ int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 	pkt->next = NULL; /* XXX */
 	pkt->sc = sc;
 	pkt->data = skb->data;
+	pkt->skb = skb;
 	pkt->tx_time = get_jaldi_tx_from_skb(skb);
 	pkt->qos_type = jaldi_get_qos_type_from_skb(skb);
 	pkt->txq = &sc->tx.txq[qnum]; /* replaces need for txctl from ath9k */
@@ -400,7 +470,7 @@ int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 	tx_timer.expires = pkt->tx_time;*/
 
 	/* check for type: control packet or standard */
-	if( jaldi_pkt_type(pkt) == JALDI_CONTROL ) { // should check header
+	if( jaldi_pkt_type(pkt) == JALDI_PKT_TYPE_CONTROL ) { // should check header
 		jaldi_hw_ctl(sc, pkt);
 	} else {
 		jaldi_hw_tx(sc, pkt);
@@ -477,6 +547,7 @@ void jaldi_cleanup(void)
 {
 	jaldi_ahb_exit();
 	jaldi_pci_exit();
+	jaldi_print(JALDI_INFO, "JaldiMAC driver removed.\n");
 	return;
 }
 
@@ -497,7 +568,7 @@ int jaldi_init_module(void)
 {
 	int result, ret = -ENODEV;
 	DBG_START_MSG;
-	jaldi_print(JALDI_INFO, "Loading jaldimac. 2\n");
+	printk(KERN_INFO "jaldi: Loading JaldiMAC kernel driver. Debug level is %d.\n", JALDI_DEBUG_LEVEL);
 
 	result = jaldi_pci_init();
 	if (result < 0) {

@@ -20,14 +20,16 @@
 #define	OHAI jaldi_print(JALDI_DEBUG,"OHAI! %s [file %s, line %d]\n", __FUNCTION__, WHEREARG)
 
 enum JALDI_DEBUG_LEVEL {
-	JALDI_DEBUG,
-	JALDI_INFO,
-	JALDI_ALERT,
-	JALDI_WARN,
-	JALDI_FATAL,
+	JALDI_FATAL = 0,
+	JALDI_WARN = 1,
+	JALDI_ALERT = 2,
+	JALDI_INFO = 3,
+	JALDI_DEBUG = 4,
 };
 
 void jaldi_print(int level, const char *fmt, ...)
 	__attribute__ ((format (printf, 2, 3)));
+
+#define JALDI_DEBUG_LEVEL JALDI_INFO
 
 #endif /* JALDI_DEBUG_H */

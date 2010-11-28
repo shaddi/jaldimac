@@ -1882,7 +1882,8 @@ bool jaldi_hw_stopdmarecv(struct jaldi_hw *hw)
 /****************/
 /* MAC (ar9002) */
 /****************/
-static void jaldi_hw_fill_txdesc(struct jaldi_hw *hw, struct jaldi_desc *ds, u32 seglen,
+//static void jaldi_hw_fill_txdesc(struct jaldi_hw *hw, struct jaldi_desc *ds, u32 seglen,
+void jaldi_hw_fill_txdesc(struct jaldi_hw *hw, struct jaldi_desc *ds, u32 seglen,
 				  bool is_firstseg, bool is_lastseg,
 				  const struct jaldi_desc *ds0, dma_addr_t buf_addr,
 				  unsigned int qcu)
@@ -1911,7 +1912,8 @@ static void jaldi_hw_fill_txdesc(struct jaldi_hw *hw, struct jaldi_desc *ds, u32
 	ads->ds_txstatus8 = ads->ds_txstatus9 = 0;
 }
 
-static void jaldi_hw_set11n_txdesc(struct jaldi_hw *hw, void *ds,
+//static void jaldi_hw_set11n_txdesc(struct jaldi_hw *hw, void *ds,
+void jaldi_hw_set11n_txdesc(struct jaldi_hw *hw, void *ds,
 				    u32 pktLen, enum jaldi_pkt_type type,
 				    u32 txPower, u32 flags)
 {
