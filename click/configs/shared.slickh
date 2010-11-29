@@ -18,22 +18,14 @@
 #define $MTU 1500
 
 // Click port names
-//#define $BULK 0
-//#define $DATA 0
-//#define $CONTROL 1
-//#define $VOIP 2 
-
 #define $CONTROL 0
 #define $BULK 1
 #define $VOIP 2
 
-//#define $OUT 1
 #define $DATA 1
 
 #define $OUT 0
 
-//#define $ARP_QUERY 0
-//#define $ARP_REPLY 1
 #define $ARP_REPLY 0
 #define $ARP_QUERY 1
 #define $IP 2
