@@ -65,10 +65,11 @@
 /*************************/
 
 #define JALDI_TXBUF_RESET(_bf) do {				\
-		memset(&((_bf)), 0, sizeof(struct jaldi_buf));  \
 		(_bf)->bf_stale = false;			\
 		(_bf)->bf_lastbf = NULL;			\
 		(_bf)->bf_next = NULL;				\
+		memset(&((_bf)->bf_state), 0, 			\
+			sizeof(struct jaldi_buf_state));	\
 	} while (0)
 
 #define JALDI_RXBUF_RESET(_bf) do {		\
@@ -97,22 +98,41 @@ enum jaldi_freq_band {
 	JALDI_5GHZ,
 };
 
-enum jaldi_packet_type {
-	JALDI_CONTROL = 0,
-	JALDI_DATA,
+enum jaldi_pkt_type {
+        JALDI_PKT_TYPE_NORMAL = 0, /* all packets that are tx'd are of this type */
+        JALDI_PKT_TYPE_CONTROL,    /* packets used to set an internal setting (not tx'd) */
 };
 
 struct jaldi_packet {
 	struct jaldi_packet *next;
 	struct jaldi_softc *sc;
 	struct sk_buff *skb;
-	int jaldi_packet_type;
+	enum jaldi_pkt_type type;
 	struct jaldi_txq *txq;
 	int datalen;
 	char *data;
 	s64 tx_time; /* the time at which this packet should be sent */
 	int qos_type;
 };
+
+struct jaldi_buf_state {
+	int bfs_nframes;
+	u16 bfs_al;
+	u16 bfs_frmlen;
+	int bfs_seqno;
+	int bfs_tidno;
+	int bfs_retries;
+	u8 bfs_type;
+};
+
+/* TIL: when experienced kernel devs write weird code they're probably doing it that 
+ * way for a reason. */
+#define bf_nframes      	bf_state.bfs_nframes
+#define bf_al           	bf_state.bfs_al
+#define bf_frmlen       	bf_state.bfs_frmlen
+#define bf_retries      	bf_state.bfs_retries
+#define bf_seqno        	bf_state.bfs_seqno
+#define bf_tidno        	bf_state.bfs_tidno
 
 struct jaldi_buf {
 	struct list_head list;
@@ -123,21 +143,14 @@ struct jaldi_buf {
 	void *bf_desc;			/* virtual addr of desc */
 	dma_addr_t bf_daddr;		/* physical addr of desc */
 	dma_addr_t bf_buf_addr;		/* physical addr of data buffer */
-	dma_addr_t bf_dma_context;
+	dma_addr_t bf_dmacontext;
 	struct sk_buff *bf_mpdu; 	/* MAC protocol data unit */
 	
 	bool bf_stale;
 	bool bf_tx_aborted;
-	
-	/* buffer state */
-	int bf_nframes;
-	u16 bf_al;
-	u16 bf_frmlen;
-	int bf_seqno;
-	int bf_tidno;
-	int bf_retries;
-	u8 bf_type;
 
+	struct jaldi_buf_state bf_state;
+	
 	u16 bf_flags;
 };
 
