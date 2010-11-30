@@ -9,17 +9,21 @@ const unsigned VOIP_MTU = 300;
 const uint8_t CURRENT_VERSION = 1;
 const uint8_t PREAMBLE[4] = ['J', 'L', 'D', CURRENT_VERSION];
 
-// Frame types
+// Frame types:
+// There are three general classes of frames. "Content" frames are sent over
+// the air and exist to transfer data. "Local Control" frames are not sent over
+// the air and exist to communicate between Click and the kernel driver.
+// "Global Control" frames are broadcast, but also serve to give instructions
+// to the driver. Each type of frame is categorized below.
 enum FrameType
 {
-	DATA_FRAME = 0,
-	VOIP_FRAME,
-	CONTENTION_SLOT,
-	VOIP_SLOT,
-	TRANSMIT_MESSAGE,
-	RECEIVE_MESSAGE,
-	BITRATE_MESSAGE,
-	ROUND_COMPLETE_MESSAGE
+	DATA_FRAME = 0,			// Content
+	VOIP_FRAME,			// Content
+	CONTENTION_SLOT,		// Global Control
+	VOIP_SLOT,			// Global Control
+	TRANSMIT_MESSAGE,		// Global Control
+	BITRATE_MESSAGE,		// Local Control
+	ROUND_COMPLETE_MESSAGE		// Local Control
 };
 
 struct Frame
@@ -35,8 +39,8 @@ struct Frame
 	// For a CONTENTION_SLOT, this is the duration of the contention slot.
 	// For a VOIP_SLOT, this is a duration followed by 4 bytes enumerating
 	// the stations which may transmit, in order.
-	// For a TRANSMIT_MESSAGE, this is the duration for which the station may transmit.
-	// For a RECEIVE_MESSAGE, this is the duration for which the driver must receive.
+	// For a TRANSMIT_MESSAGE, this is the duration for which the station may transmit (and the
+	// driver must receive).
 	// For a BITRATE_MESSAGE, this is the new bitrate to set.
 	// For a ROUND_COMPLETE_MESSAGE, no payload is neccessary. (Only the footer.)
 	// The payload has 64 bits of footer appended: 32 bits of CRC32 followed by 32 bits

@@ -69,7 +69,7 @@ void JaldiEncap::take_state(Element* old, ErrorHandler* errh)
         seq = oldJE->seq;
 }
 
-Packet* JaldiEncap::action(Packet* p)
+static Packet* action(Packet* p)
 {
     // Remember the "real" length of this packet
     uint32_t length = p->length();

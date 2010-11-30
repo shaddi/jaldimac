@@ -1,9 +1,9 @@
 /*
- * JaldiEncap.{cc,hh} -- encapsulates packet in Jaldi header
+ * JaldiDecap.{cc,hh} -- decapsulates Jaldi frame
  */
 
 #include <click/config.h>
-#include "JaldiEncap.hh"
+#include "JaldiDecap.hh"
 #include <click/confparse.hh>
 #include <click/error.hh>
 #include <click/glue.hh>
@@ -13,110 +13,74 @@ using namespace jaldimac;
 
 CLICK_DECLS
 
-JaldiEncap::JaldiEncap()
+JaldiDecap::JaldiDecap()
 {
 }
 
-JaldiEncap::~JaldiEncap()
+JaldiDecap::~JaldiDecap()
 {
 }
 
-int JaldiEncap::configure(Vector<String>& conf, ErrorHandler* errh)
+enum PacketType
 {
-    String name_of_type;
+	CONTROL = 0,
+	DATA,
+	BAD
+};
 
-    // Parse configuration parameters
-    if (cp_va_kparse(conf, this, errh,
-		     "TYPE", cpkP+cpkM, cpString, &name_of_type,
-		     "DST", cpkP+cpkM, cpByte, &dest_id,
-		     cpEnd) < 0)
-        return -1;
-
-    // Convert TYPE field from a string to the appropriate code
-    if (name_of_type.equals("DATA_FRAME", -1))
-        type = DATA_FRAME;
-    else if (name_of_type.equals("VOIP_FRAME", -1))
-        type = VOIP_FRAME;
-    else if (name_of_type.equals("CONTENTION_SLOT", -1))
-        type = CONTENTION_SLOT;
-    else if (name_of_type.equals("VOIP_SLOT", -1))
-        type = VOIP_SLOT;
-    else if (name_of_type.equals("TRANSMIT_MESSAGE", -1))
-        type = TRANSMIT_MESSAGE;
-    else if (name_of_type.equals("RECEIVE_MESSAGE", -1))
-        type = RECEIVE_MESSAGE;
-    else if (name_of_type.equals("BITRATE_MESSAGE", -1))
-        type = BITRATE_MESSAGE;
-    else if (name_of_type.equals("ROUND_COMPLETE_MESSAGE", -1))
-        type = ROUND_COMPLETE_MESSAGE;
-    else
-    {
-        errh->error("invalid Jaldi frame type: %s", name_of_type.c_str());
-        return -1;
-    }
-
-    // Initialize the sequence number to 0
-    seq = 0;
-
-    return 0;
-}
-
-void JaldiEncap::take_state(Element* old, ErrorHandler* errh)
+static PacketType action(Packet* p)
 {
-    JaldiEncap* oldJE = (JaldiEncap*) old->cast("JaldiEncap");
+    PacketType type;
 
-    if (oldJE)
-        seq = oldJE->seq;
-}
+	// Treat the packet as a Frame
+	const Frame* f = (const Frame*) p->data();
 
-Packet* JaldiEncap::action(Packet* p)
-{
-    // Remember the "real" length of this packet
-    uint32_t length = p->length();
+	// Classify the packet (Control, Data, or Bad)?
+	switch (f->type)
+	{
+		case DATA_FRAME:
+		case VOIP_FRAME:
+			type = DATA; break;
 
-    // If the packet's too long, kill it
-    if (length > UINT16_MAX)
-    {
-        p->kill();
-        return NULL;
-    }
+		case CONTENTION_SLOT:
+		case VOIP_SLOT:
+		case TRANSMIT_MESSAGE:
+		case BITRATE_MESSAGE:
+		case ROUND_COMPLETE_MESSAGE:
+			type = CONTROL; break;
 
-    // Add space for Jaldi frame header and footer to packet
-    WriteablePacket* p0 = p->push(Frame::HeaderSize);
-    WriteablePacket* p1 = p0->put(Frame::FooterSize);
+		default:
+			type = BAD; break;
+	}
 
-    // Create header
-    Frame* f = (Frame*) p1->data();
-    f->Initialize();
-    f->dest_id = dest_id;
-    f->type = type;
-    f->length = p1->length() + Frame::HeaderSize + Frame::FooterSize;
-    f->seq = seq++;
+	if (type == DATA)
+	{
+		// Strip Jaldi header and footer
+		p->pull(Frame::HeaderSize);
+		p->take(Frame::FooterSize);
+	}
 
-    // Create footer (actually only the CRC; the timestamp will be added by the driver)
-    f->ComputeCRC();
-
-    // Kill intermediate packets that are now unnecessary
-    p->kill();
-    p0->kill();
-
-    // Return the final encapsulated packet
-    return p1;
+    return type;
 }
 
 void JaldiEncap::push(int port, Packet* p)
 {
-    if (Packet* q = action(p))
-        output(0).push(q);
-}
+    switch (action(p))
+    {
+        case CONTROL:
+            output(0).push(p); break;
 
-Packet* JaldiEncap::pull(int port)
-{
-    if (Packet *p = input(0).pull())
-        return action(p);
-    else
-        return NULL;
+        case DATA:
+            output(1).push(p); break;
+
+        default:
+            if (port_active(true, 2))
+                output(2).push(p);
+            else
+                p->kill();
+            break;
+    }
 }
 
 CLICK_ENDDECLS
-EXPORT_ELEMENT(JaldiEncap)
+EXPORT_ELEMENT(JaldiDecap)

@@ -1,58 +1,44 @@
-#ifndef CLICK_JALDIENCAP_HH
-#define CLICK_JALDIENCAP_HH
+#ifndef CLICK_JALDIDECAP_HH
+#define CLICK_JALDIDECAP_HH
 #include <click/element.hh>
 CLICK_DECLS
 
 /*
 =c
 
-JaldiEncap(TYPE, DST)
+JaldiDecap
 
 =s jaldi
 
-encapsulates packets in Jaldi header
+decapsulates packets which are wrapped in a Jaldi header
 
 =d
 
-Encapsulates each packet in the Jaldi header specified by its arguments.
+Decapsulates Jaldi frames into IP packets. Jaldi control messages, for which
+decapsulation is not meaningful, are placed on output 0. IP packets are placed
+on output 1. Jaldi frames which could not be decapsulated for whatever reason
+(for example, they have an invalid type, or they failed the CRC check) are
+placed on output 2, if that output is connected.
 
-TYPE may be one of: DATA_FRAME, VOIP_FRAME, CONTENTION_SLOT, VOIP_SLOT,
-TRANSMIT_MESSAGE, RECEIVE_MESSAGE, ROUND_COMPLETE_MESSAGE, or BITRATE_MESSAGE.
-
-=e
-
-Encapsulate packets in a Jaldi header with type DATA_FRAME,
-destination station 2:
-
-  JaldiEncap(DATA_FRAME, 2)
+This element is push only.
 
 =a
 
-JaldiDecap */
+JaldiEncap */
 
-class JaldiEncap : public Element { public:
+class JaldiDecap : public Element { public:
 
-    JaldiEncap();
-    ~JaldiEncap();
+    JaldiDecap();
+    ~JaldiDecap();
 
-    const char* class_name() const	{ return "JaldiEncap"; }
-    const char* port_count() const	{ return PORTS_1_1; }
-    const char* processing() const	{ return AGNOSTIC; }
+    const char* class_name() const	{ return "JaldiDecap"; }
+    const char* port_count() const	{ return "1/2-3" }
+    const char* processing() const	{ return PUSH; }
     const char* flow_code() const	{ return COMPLETE_FLOW; }
 
-    int configure(Vector<String>&, ErrorHandler*);
     bool can_live_reconfigure() const	{ return true; }
 
-    Packet* action(Packet*);
     void push(int, Packet*);
-    Packet* pull(int);
-
-  private:
-
-    uint8_t dest_id;
-    uint8_t type;
-    uint32_t seq;
-
 };
 
 CLICK_ENDDECLS

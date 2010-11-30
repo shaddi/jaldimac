@@ -49,8 +49,8 @@ class JaldiEncap : public Element { public:
 
     int configure(Vector<String>&, ErrorHandler*);
     bool can_live_reconfigure() const	{ return true; }
+    void take_state(Element*, ErrorHandler*);
 
-    Packet* action(Packet*);
     void push(int, Packet*);
     Packet* pull(int);
 
