@@ -21,6 +21,17 @@ JaldiDecap::~JaldiDecap()
 {
 }
 
+int JaldiEncap::configure(Vector<String>& conf, ErrorHandler* errh)
+{
+    // Parse configuration parameters
+    if (cp_va_kparse(conf, this, errh,
+		     "DEST", cpkP+cpkC, &should_filter_by_dest, cpByte, &dest_id,
+		     cpEnd) < 0)
+        return -1;
+    else
+        return 0;
+}
+
 enum PacketType
 {
 	CONTROL = 0,
@@ -30,37 +41,33 @@ enum PacketType
 
 static PacketType action(Packet* p)
 {
-    PacketType type;
-
 	// Treat the packet as a Frame
 	const Frame* f = (const Frame*) p->data();
+
+    // Filter by dest_id if requested
+    if (should_filter_by_dest && !(f->dest_id == BROADCAST_ID || f->dest_id == dest_id))
+        return BAD;
 
 	// Classify the packet (Control, Data, or Bad)?
 	switch (f->type)
 	{
 		case DATA_FRAME:
 		case VOIP_FRAME:
-			type = DATA; break;
+		    // Strip Jaldi header and footer
+		    p->pull(Frame::HeaderSize);
+		    p->take(Frame::FooterSize);
+			return DATA;
 
 		case CONTENTION_SLOT:
 		case VOIP_SLOT:
-		case TRANSMIT_MESSAGE:
+		case TRANSMIT_SLOT:
 		case BITRATE_MESSAGE:
 		case ROUND_COMPLETE_MESSAGE:
-			type = CONTROL; break;
+			return CONTROL;
 
 		default:
-			type = BAD; break;
+			return BAD;
 	}
-
-	if (type == DATA)
-	{
-		// Strip Jaldi header and footer
-		p->pull(Frame::HeaderSize);
-		p->take(Frame::FooterSize);
-	}
-
-    return type;
 }
 
 void JaldiEncap::push(int port, Packet* p)

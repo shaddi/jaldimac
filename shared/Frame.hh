@@ -3,7 +3,8 @@
 namespace jaldimac {
 
 // Constants
-const unsigned MASTER_ID = 0;
+const uint8_t BROADCAST_ID = 0;
+const uint8_t MASTER_ID = 1;
 const unsigned DATA_MTU = 1500;
 const unsigned VOIP_MTU = 300;
 const uint8_t CURRENT_VERSION = 1;
@@ -17,13 +18,13 @@ const uint8_t PREAMBLE[4] = ['J', 'L', 'D', CURRENT_VERSION];
 // to the driver. Each type of frame is categorized below.
 enum FrameType
 {
-	DATA_FRAME = 0,			// Content
-	VOIP_FRAME,			// Content
-	CONTENTION_SLOT,		// Global Control
-	VOIP_SLOT,			// Global Control
-	TRANSMIT_MESSAGE,		// Global Control
-	BITRATE_MESSAGE,		// Local Control
-	ROUND_COMPLETE_MESSAGE		// Local Control
+	DATA_FRAME = 0,         // Content
+	VOIP_FRAME,             // Content
+	CONTENTION_SLOT,        // Global Control
+	VOIP_SLOT,              // Global Control
+	TRANSMIT_SLOT,          // Global Control
+	BITRATE_MESSAGE,        // Local Control
+	ROUND_COMPLETE_MESSAGE  // Local Control
 };
 
 struct Frame
@@ -33,27 +34,44 @@ struct Frame
 	uint8_t type;
 	uint16_t length;
 	uint32_t seq;
-
-	// Payload.
-	// For a DATA_FRAME or VOIP_FRAME, this is the actual data, up to MTU in size.
-	// For a CONTENTION_SLOT, this is the duration of the contention slot.
-	// For a VOIP_SLOT, this is a duration followed by 4 bytes enumerating
-	// the stations which may transmit, in order.
-	// For a TRANSMIT_MESSAGE, this is the duration for which the station may transmit (and the
-	// driver must receive).
-	// For a BITRATE_MESSAGE, this is the new bitrate to set.
-	// For a ROUND_COMPLETE_MESSAGE, no payload is neccessary. (Only the footer.)
-	// The payload has 64 bits of footer appended: 32 bits of CRC32 followed by 32 bits
-    // of timestamp which is added by the driver and is not included in the CRC32.
 	uint8_t payload[0];
 
 	static const size_t header_size = sizeof(preamble) + sizeof(dest_id) + sizeof(type)
-					+ sizeof(length) + sizeof(seq);
-	static const size_t footer_size = sizeof(uint32_t) /* CRC32 */ + sizeof(uint32_t) /* timestamp */;
+					                + sizeof(length) + sizeof(seq);
+	static const size_t footer_size = sizeof(uint32_t) /* timestamp */;
 
 	void Initialize();
 	void ComputeCRC();
 	const size_t PayloadLength() const { return length - (header_size + footer_size); }
+} __attribute__((__packed__));
+
+// Cast the payload to one of the following structs as appropriate for the
+// frame type.  After the payload comes an additional 32 bit TX timestamp which
+// is added by the driver; it is only used for debugging purposes and should
+// not affect the semantics of the protocol.
+// DATA_FRAME and VOIP_FRAME do not have a struct below as their payload consists
+// of an encapsulated IP packet. ROUND_COMPLETE_MESSAGE does not have a struct
+// because it requires no payload.
+
+struct ContentionSlotPayload
+{
+    uint32_t duration_us;
+} __attribute__((__packed__));
+
+struct VoIPSlotPayload
+{
+    uint32_t duration_us;
+    uint8_t dest_ids[4];
+} __attribute__((__packed__));
+
+struct TransmitSlotPayload
+{
+    uint32_t duration_us;
+} __attribute__((__packed__));
+
+struct BitrateMessagePayload
+{
+    /* REPLACE WITH BITRATE ENUM TYPE */ uint32_t bitrate;
 } __attribute__((__packed__));
 
 }

@@ -28,7 +28,7 @@ int JaldiEncap::configure(Vector<String>& conf, ErrorHandler* errh)
     // Parse configuration parameters
     if (cp_va_kparse(conf, this, errh,
 		     "TYPE", cpkP+cpkM, cpString, &name_of_type,
-		     "DST", cpkP+cpkM, cpByte, &dest_id,
+		     "DEST", cpkP+cpkM, cpByte, &dest_id,
 		     cpEnd) < 0)
         return -1;
 
@@ -41,10 +41,8 @@ int JaldiEncap::configure(Vector<String>& conf, ErrorHandler* errh)
         type = CONTENTION_SLOT;
     else if (name_of_type.equals("VOIP_SLOT", -1))
         type = VOIP_SLOT;
-    else if (name_of_type.equals("TRANSMIT_MESSAGE", -1))
+    else if (name_of_type.equals("TRANSMIT_SLOT", -1))
         type = TRANSMIT_MESSAGE;
-    else if (name_of_type.equals("RECEIVE_MESSAGE", -1))
-        type = RECEIVE_MESSAGE;
     else if (name_of_type.equals("BITRATE_MESSAGE", -1))
         type = BITRATE_MESSAGE;
     else if (name_of_type.equals("ROUND_COMPLETE_MESSAGE", -1))

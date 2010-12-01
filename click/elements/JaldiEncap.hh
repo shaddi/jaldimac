@@ -6,7 +6,7 @@ CLICK_DECLS
 /*
 =c
 
-JaldiEncap(TYPE, DST)
+JaldiEncap(TYPE, DEST)
 
 =s jaldi
 
@@ -17,7 +17,9 @@ encapsulates packets in Jaldi header
 Encapsulates each packet in the Jaldi header specified by its arguments.
 
 TYPE may be one of: DATA_FRAME, VOIP_FRAME, CONTENTION_SLOT, VOIP_SLOT,
-TRANSMIT_MESSAGE, RECEIVE_MESSAGE, ROUND_COMPLETE_MESSAGE, or BITRATE_MESSAGE.
+TRANSMIT_SLOT, ROUND_COMPLETE_MESSAGE, or BITRATE_MESSAGE.
+
+DEST is the station identifier of the station the Jaldi frame is intended for.
 
 Successfully encapsulated packets are sent to the first output (output 0).
 Certain erroneous packets may be dropped by JaldiEncap - in particular, packets
