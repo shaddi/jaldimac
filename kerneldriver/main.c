@@ -85,7 +85,7 @@ irqreturn_t jaldi_isr(int irq, void *dev)
 	/* shared irq, not for us */
 	if(!jaldi_hw_intrpend(hw)) { return IRQ_NONE; }
 
-	// TODO: determine how we want to handle interrupts
+	jaldi_print(JALDI_DEBUG, "isr hit!\n");
 }
 
 	
@@ -289,7 +289,7 @@ int get_jaldi_tx_from_skb(struct sk_buff *skb) {
 	return 0; // TODO: decide on a packet format and implement this by reading protocol header field
 }
 
-int jaldi_pkt_type(struct jaldi_packet *pkt)
+int jaldi_pkt_type(struct sk_buff *skb)
 {
 	// TODO : define format and check for potential control pkt
 	return JALDI_PKT_TYPE_NORMAL;
@@ -457,6 +457,7 @@ int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 	pkt->tx_time = get_jaldi_tx_from_skb(skb);
 	pkt->qos_type = jaldi_get_qos_type_from_skb(skb);
 	pkt->txq = &sc->tx.txq[qnum]; /* replaces need for txctl from ath9k */
+	pkt->type = jaldi_pkt_type(skb);
 
 	
 	/* add jaldi packet to tx_queue */
@@ -470,7 +471,7 @@ int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 	tx_timer.expires = pkt->tx_time;*/
 
 	/* check for type: control packet or standard */
-	if( jaldi_pkt_type(pkt) == JALDI_PKT_TYPE_CONTROL ) { // should check header
+	if( pkt->type == JALDI_PKT_TYPE_CONTROL ) { // should check header
 		jaldi_hw_ctl(sc, pkt);
 	} else {
 		jaldi_hw_tx(sc, pkt);

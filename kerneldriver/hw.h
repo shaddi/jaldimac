@@ -434,6 +434,10 @@ struct jaldi_hw_ops {
 	void (*rfbus_done)(struct jaldi_hw *hw);
 	bool (*rfbus_req)(struct jaldi_hw *hw);
 	void (*set_channel_regs)(struct jaldi_hw *hw, struct jaldi_channel *chan);
+
+	/* MAC ops */ /* TODO: should move more of the hard-coded mac ops into here from hw.c */
+	bool (*get_isr)(struct jaldi_hw *hw, enum jaldi_intr_type *masked);
+	void (*rx_enable)(struct jaldi_hw *hw);
 };
 
 struct jaldi_hw {
@@ -522,6 +526,7 @@ bool jaldi_hw_intrpend(struct jaldi_hw *hw);
 bool jaldi_hw_wait(struct jaldi_hw *hw, u32 reg, u32 mask, u32 val, u32 timeout);
 
 void jaldi_hw_attach_phy_ops(struct jaldi_hw *hw);
+void jaldi_hw_attach_mac_ops(struct jaldi_hw *hw);
 void jaldi_hw_get_channel_centers(struct jaldi_channel *chan, 
 				  struct chan_centers *centers);
 bool jaldi_hw_setpower(struct jaldi_hw *hw, enum jaldi_power_mode mode);

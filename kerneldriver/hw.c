@@ -98,6 +98,158 @@ bool jaldi_hw_intrpend(struct jaldi_hw *hw) {
 	return false;
 }
 
+
+static bool ar9002_hw_get_isr(struct jaldi_hw *hw, enum jaldi_intr_type *masked)
+{
+	u32 isr = 0;
+	u32 mask2 = 0;
+	struct jaldi_hw_capabilities *pCap = &hw->caps;
+	u32 sync_cause = 0;
+	bool fatal_int = false;
+
+	if (!AR_SREV_9100(hw)) {
+		if (REG_READ(hw, AR_INTR_ASYNC_CAUSE) & AR_INTR_MAC_IRQ) {
+			if ((REG_READ(hw, AR_RTC_STATUS) & AR_RTC_STATUS_M)
+			    == AR_RTC_STATUS_ON) {
+				isr = REG_READ(hw, AR_ISR);
+			}
+		}
+
+		sync_cause = REG_READ(hw, AR_INTR_SYNC_CAUSE) &
+			AR_INTR_SYNC_DEFAULT;
+
+		*masked = 0;
+
+		if (!isr && !sync_cause)
+			return false;
+	} else {
+		*masked = 0;
+		isr = REG_READ(hw, AR_ISR);
+	}
+
+	if (isr) {
+		if (isr & AR_ISR_BCNMISC) {
+			u32 isr2;
+			isr2 = REG_READ(hw, AR_ISR_S2);
+			if (isr2 & AR_ISR_S2_TIM)
+				mask2 |= JALDI_INT_TIM;
+			if (isr2 & AR_ISR_S2_DTIM)
+				mask2 |= JALDI_INT_DTIM;
+			if (isr2 & AR_ISR_S2_DTIMSYNC)
+				mask2 |= JALDI_INT_DTIMSYNC;
+			if (isr2 & (AR_ISR_S2_CABEND))
+				mask2 |= JALDI_INT_CABEND;
+			if (isr2 & AR_ISR_S2_GTT)
+				mask2 |= JALDI_INT_GTT;
+			if (isr2 & AR_ISR_S2_CST)
+				mask2 |= JALDI_INT_CST;
+			if (isr2 & AR_ISR_S2_TSFOOR)
+				mask2 |= JALDI_INT_TSFOOR;
+		}
+
+		isr = REG_READ(hw, AR_ISR_RAC);
+		if (isr == 0xffffffff) {
+			*masked = 0;
+			return false;
+		}
+
+		*masked = isr & JALDI_INT_COMMON;
+
+		if (hw->config.rx_intr_mitigation) {
+			if (isr & (AR_ISR_RXMINTR | AR_ISR_RXINTM))
+				*masked |= JALDI_INT_RX;
+		}
+
+		if (isr & (AR_ISR_RXOK | AR_ISR_RXERR))
+			*masked |= JALDI_INT_RX;
+		if (isr &
+		    (AR_ISR_TXOK | AR_ISR_TXDESC | AR_ISR_TXERR |
+		     AR_ISR_TXEOL)) {
+			u32 s0_s, s1_s;
+
+			*masked |= JALDI_INT_TX;
+
+			s0_s = REG_READ(hw, AR_ISR_S0_S);
+			hw->intr_txqs |= MS(s0_s, AR_ISR_S0_QCU_TXOK);
+			hw->intr_txqs |= MS(s0_s, AR_ISR_S0_QCU_TXDESC);
+
+			s1_s = REG_READ(hw, AR_ISR_S1_S);
+			hw->intr_txqs |= MS(s1_s, AR_ISR_S1_QCU_TXERR);
+			hw->intr_txqs |= MS(s1_s, AR_ISR_S1_QCU_TXEOL);
+		}
+
+		if (isr & AR_ISR_RXORN) {
+			jaldi_print(JALDI_WARN,
+				  "receive FIFO overrun interrupt\n");
+		}
+
+		if (!AR_SREV_9100(hw)) {
+			if (!(pCap->hw_caps & JALDI_HW_CAP_AUTOSLEEP)) {
+				u32 isr5 = REG_READ(hw, AR_ISR_S5_S);
+				if (isr5 & AR_ISR_S5_TIM_TIMER)
+					*masked |= JALDI_INT_TIM_TIMER;
+			}
+		}
+
+		*masked |= mask2;
+	}
+
+	if (AR_SREV_9100(hw))
+		return true;
+
+	if (isr & AR_ISR_GENTMR) {
+		u32 s5_s;
+
+		s5_s = REG_READ(hw, AR_ISR_S5_S);
+		if (isr & AR_ISR_GENTMR) {
+			hw->intr_gen_timer_trigger =
+				MS(s5_s, AR_ISR_S5_GENTIMER_TRIG);
+
+			hw->intr_gen_timer_thresh =
+				MS(s5_s, AR_ISR_S5_GENTIMER_THRESH);
+
+			if (hw->intr_gen_timer_trigger)
+				*masked |= JALDI_INT_GENTIMER;
+
+		}
+	}
+
+	if (sync_cause) {
+		fatal_int =
+			(sync_cause &
+			 (AR_INTR_SYNC_HOST1_FATAL | AR_INTR_SYNC_HOST1_PERR))
+			? true : false;
+
+		if (fatal_int) {
+			if (sync_cause & AR_INTR_SYNC_HOST1_FATAL) {
+				jaldi_print(JALDI_DEBUG,
+					  "received PCI FATAL interrupt\n");
+			}
+			if (sync_cause & AR_INTR_SYNC_HOST1_PERR) {
+				jaldi_print(JALDI_DEBUG,
+					  "received PCI PERR interrupt\n");
+			}
+			*masked |= JALDI_INT_FATAL;
+		}
+		if (sync_cause & AR_INTR_SYNC_RADM_CPL_TIMEOUT) {
+			jaldi_print(JALDI_DEBUG,
+				  "AR_INTR_SYNC_RADM_CPL_TIMEOUT\n");
+			REG_WRITE(hw, AR_RC, AR_RC_HOSTIF);
+			REG_WRITE(hw, AR_RC, 0);
+			*masked |= JALDI_INT_FATAL;
+		}
+		if (sync_cause & AR_INTR_SYNC_LOCAL_TIMEOUT) {
+			jaldi_print(JALDI_DEBUG,
+				  "AR_INTR_SYNC_LOCAL_TIMEOUT\n");
+		}
+
+		REG_WRITE(hw, AR_INTR_SYNC_CAUSE_CLR, sync_cause);
+		(void) REG_READ(hw, AR_INTR_SYNC_CAUSE_CLR);
+	}
+
+	return true;
+}
+
 /********************/
 /* Helper Functions */
 /********************/
@@ -198,7 +350,7 @@ static void jaldi_hw_set_operating_mode(struct jaldi_hw *hw, int opmode)
 		hw->opmode = JALDI_CLIENT;
 		break;
 	default:
-		jaldi_print(JALDI_INFO, "Invalid opmode, ignoring\n");
+		jaldi_print(JALDI_INFO, "Invalid opmode (%d), ignoring\n", opmode);
 	}
 
 	// We operate in ad-hoc mode. Monitor commented out. See hw.c in a9k
@@ -1304,6 +1456,7 @@ static void jaldi_hw_attach_ops(struct jaldi_hw *hw)
 {
 	DBG_START_MSG;
 	jaldi_hw_attach_phy_ops(hw);
+	jaldi_hw_attach_mac_ops(hw);
 	DBG_END_MSG;
 }
 
@@ -1833,6 +1986,11 @@ void jaldi_hw_putrxbuf(struct jaldi_hw *hw, u32 rxdp)
 	REG_WRITE(hw, AR_RXDP, rxdp);
 }
 
+static void ar9002_hw_rx_enable(struct jaldi_hw *hw)
+{
+	REG_WRITE(hw, AR_CR, AR_CR_RXE);
+}
+
 void jaldi_hw_startpcureceive(struct jaldi_hw *hw)
 {
 	REG_CLR_BIT(hw, AR_DIAG_SW, (AR_DIAG_RX_DIS | AR_DIAG_RX_ABORT));
@@ -1948,4 +2106,12 @@ void jaldi_hw_set11n_txdesc(struct jaldi_hw *hw, void *ds,
 		ads->ds_ctl10 = 0;
 		ads->ds_ctl11 = 0;
 	}
+}
+
+void jaldi_hw_attach_mac_ops(struct jaldi_hw *hw)
+{
+	struct jaldi_hw_ops *ops = jaldi_get_hw_ops(hw);
+
+	ops->get_isr = ar9002_hw_get_isr;	
+	ops->rx_enable = ar9002_hw_rx_enable;
 }

@@ -5,6 +5,9 @@
 #include "jaldi.h"
 #include "hw.h"
 
+/**************
+ * General phy 
+ **************/
 static int jaldi_hw_set_freq(struct jaldi_hw *hw, struct jaldi_channel *chan)
 {
 	u16 bMode, fracMode, aModeRefSel = 0;
