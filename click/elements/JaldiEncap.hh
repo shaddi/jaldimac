@@ -44,15 +44,16 @@ class JaldiEncap : public Element { public:
     JaldiEncap();
     ~JaldiEncap();
 
-    const char* class_name() const	{ return "JaldiEncap"; }
-    const char* port_count() const	{ return "1/1-2" }
-    const char* processing() const	{ return PROCESSING_A_AH; }
-    const char* flow_code() const	{ return COMPLETE_FLOW; }
+    const char* class_name() const  { return "JaldiEncap"; }
+    const char* port_count() const  { return "1/1-2"; }
+    const char* processing() const  { return PROCESSING_A_AH; }
+    const char* flow_code() const   { return COMPLETE_FLOW; }
 
     int configure(Vector<String>&, ErrorHandler*);
-    bool can_live_reconfigure() const	{ return true; }
+    bool can_live_reconfigure() const   { return true; }
     void take_state(Element*, ErrorHandler*);
 
+    Packet* action(Packet* p);
     void push(int, Packet*);
     Packet* pull(int);
 

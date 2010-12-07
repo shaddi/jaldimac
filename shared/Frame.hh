@@ -8,7 +8,7 @@ const uint8_t MASTER_ID = 1;
 const unsigned DATA_MTU = 1500;
 const unsigned VOIP_MTU = 300;
 const uint8_t CURRENT_VERSION = 1;
-const uint8_t PREAMBLE[4] = ['J', 'L', 'D', CURRENT_VERSION];
+const uint8_t PREAMBLE[4] = {'J', 'L', 'D', CURRENT_VERSION};
 
 // Frame types:
 // There are three general classes of frames. "Content" frames are sent over
@@ -18,31 +18,45 @@ const uint8_t PREAMBLE[4] = ['J', 'L', 'D', CURRENT_VERSION];
 // to the driver. Each type of frame is categorized below.
 enum FrameType
 {
-	DATA_FRAME = 0,         // Content
-	VOIP_FRAME,             // Content
-	CONTENTION_SLOT,        // Global Control
-	VOIP_SLOT,              // Global Control
-	TRANSMIT_SLOT,          // Global Control
-	BITRATE_MESSAGE,        // Local Control
-	ROUND_COMPLETE_MESSAGE  // Local Control
+    DATA_FRAME = 0,         // Content
+    VOIP_FRAME,             // Content
+    CONTENTION_SLOT,        // Global Control
+    VOIP_SLOT,              // Global Control
+    TRANSMIT_SLOT,          // Global Control
+    BITRATE_MESSAGE,        // Local Control
+    ROUND_COMPLETE_MESSAGE  // Local Control
 };
 
 struct Frame
 {
-	uint8_t preamble[4];
-	uint8_t dest_id;
-	uint8_t type;
-	uint16_t length;
-	uint32_t seq;
-	uint8_t payload[0];
+    // Fields
+    uint8_t preamble[4];
+    uint8_t dest_id;
+    uint8_t type;
+    uint16_t length;
+    uint32_t seq;
+    uint8_t payload[0];     // Actual size determined by length
 
-	static const size_t header_size = sizeof(preamble) + sizeof(dest_id) + sizeof(type)
-					                + sizeof(length) + sizeof(seq);
-	static const size_t footer_size = sizeof(uint32_t) /* timestamp */;
+    // Static constants
+    static const size_t header_size = sizeof(preamble) + sizeof(dest_id) + sizeof(type)
+                                    + sizeof(length) + sizeof(seq);
+    static const size_t footer_size = sizeof(uint32_t) /* timestamp */;
 
-	void Initialize();
-	void ComputeCRC();
-	const size_t PayloadLength() const { return length - (header_size + footer_size); }
+    // Member functions
+    template<uint8_t Type>
+    void Initialize()
+    {
+        // Set up preamble
+        memcpy(preamble, PREAMBLE, sizeof(PREAMBLE));
+
+        // Set up defaults for other values
+        dest_id = 0;
+        type = Type;
+        length = Frame::header_size + Frame::footer_size;
+        seq = 0;
+    }
+
+    size_t PayloadLength() const { return length - (header_size + footer_size); }
 } __attribute__((__packed__));
 
 // Cast the payload to one of the following structs as appropriate for the

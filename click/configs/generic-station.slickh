@@ -63,9 +63,10 @@ jToIP[$DATA] -> [$DATA]ipToEth
 jToIP[$CONTROL] -> [$CONTROL]gate
 
 // Handle IP traffic from downstream
+// FIXME: IPToJaldi destination station is always zero right now
 ipClassifier[$OUT] -> $TOHOST
-ipClassifier[$BULK] -> IPToJaldi(BULK) -> JaldiQueue -> [$BULK]gate
-ipClassifier[$VOIP] -> IPToJaldi(VOIP) -> JaldiQueue -> [$VOIP]gate
+ipClassifier[$BULK] -> IPToJaldi(DATA_FRAME, 0) -> JaldiQueue -> [$BULK]gate
+ipClassifier[$VOIP] -> IPToJaldi(VOIP_FRAME, 0) -> JaldiQueue -> [$VOIP]gate
 
 // Outgoing traffic
 ipToEth -> downstreamSink

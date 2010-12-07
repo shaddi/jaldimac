@@ -2,6 +2,8 @@
  * JaldiEncap.{cc,hh} -- encapsulates packet in Jaldi header
  */
 
+#define __STDC_LIMIT_MACROS
+#include <stdint.h>
 #include <click/config.h>
 #include "JaldiEncap.hh"
 #include <click/confparse.hh>
@@ -27,9 +29,9 @@ int JaldiEncap::configure(Vector<String>& conf, ErrorHandler* errh)
 
     // Parse configuration parameters
     if (cp_va_kparse(conf, this, errh,
-		     "TYPE", cpkP+cpkM, cpString, &name_of_type,
-		     "DEST", cpkP+cpkM, cpByte, &dest_id,
-		     cpEnd) < 0)
+             "TYPE", cpkP+cpkM, cpString, &name_of_type,
+             "DEST", cpkP+cpkM, cpByte, &dest_id,
+             cpEnd) < 0)
         return -1;
 
     // Convert TYPE field from a string to the appropriate code
@@ -42,7 +44,7 @@ int JaldiEncap::configure(Vector<String>& conf, ErrorHandler* errh)
     else if (name_of_type.equals("VOIP_SLOT", -1))
         type = VOIP_SLOT;
     else if (name_of_type.equals("TRANSMIT_SLOT", -1))
-        type = TRANSMIT_MESSAGE;
+        type = TRANSMIT_SLOT;
     else if (name_of_type.equals("BITRATE_MESSAGE", -1))
         type = BITRATE_MESSAGE;
     else if (name_of_type.equals("ROUND_COMPLETE_MESSAGE", -1))
@@ -59,7 +61,7 @@ int JaldiEncap::configure(Vector<String>& conf, ErrorHandler* errh)
     return 0;
 }
 
-void JaldiEncap::take_state(Element* old, ErrorHandler* errh)
+void JaldiEncap::take_state(Element* old, ErrorHandler*)
 {
     JaldiEncap* oldJE = (JaldiEncap*) old->cast("JaldiEncap");
 
@@ -67,7 +69,7 @@ void JaldiEncap::take_state(Element* old, ErrorHandler* errh)
         seq = oldJE->seq;
 }
 
-static Packet* action(Packet* p)
+Packet* JaldiEncap::action(Packet* p)
 {
     // Remember the "real" length of this packet
     uint32_t length = p->length();
@@ -84,19 +86,16 @@ static Packet* action(Packet* p)
     }
 
     // Add space for Jaldi frame header and footer to packet
-    WriteablePacket* p0 = p->push(Frame::HeaderSize);
-    WriteablePacket* p1 = p0->put(Frame::FooterSize);
+    WritablePacket* p0 = p->push(Frame::header_size);
+    WritablePacket* p1 = p0->put(Frame::footer_size);
 
     // Create header
     Frame* f = (Frame*) p1->data();
-    f->Initialize();
+    f->Initialize<DATA_FRAME>();
     f->dest_id = dest_id;
     f->type = type;
-    f->length = p1->length() + Frame::HeaderSize + Frame::FooterSize;
+    f->length = p1->length() + Frame::header_size + Frame::footer_size;
     f->seq = seq++;
-
-    // Create footer (actually only the CRC; the timestamp will be added by the driver)
-    f->ComputeCRC();
 
     // Kill intermediate packets that are now unnecessary
     p->kill();
@@ -106,13 +105,13 @@ static Packet* action(Packet* p)
     return p1;
 }
 
-void JaldiEncap::push(int port, Packet* p)
+void JaldiEncap::push(int, Packet* p)
 {
     if (Packet* q = action(p))
         output(0).push(q);
 }
 
-Packet* JaldiEncap::pull(int port)
+Packet* JaldiEncap::pull(int)
 {
     if (Packet *p = input(0).pull())
         return action(p);

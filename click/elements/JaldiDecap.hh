@@ -35,17 +35,25 @@ JaldiEncap */
 
 class JaldiDecap : public Element { public:
 
+    enum PacketType
+    {
+        CONTROL = 0,
+        DATA,
+        BAD
+    };
+
     JaldiDecap();
     ~JaldiDecap();
 
-    const char* class_name() const	{ return "JaldiDecap"; }
-    const char* port_count() const	{ return "1/2-3" }
-    const char* processing() const	{ return PUSH; }
-    const char* flow_code() const	{ return COMPLETE_FLOW; }
+    const char* class_name() const  { return "JaldiDecap"; }
+    const char* port_count() const  { return "1/2-3"; }
+    const char* processing() const  { return PUSH; }
+    const char* flow_code() const   { return COMPLETE_FLOW; }
 
     int configure(Vector<String>&, ErrorHandler*);
-    bool can_live_reconfigure() const	{ return true; }
+    bool can_live_reconfigure() const   { return true; }
 
+    PacketType action(Packet*);
     void push(int, Packet*);
 
     private:

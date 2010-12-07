@@ -1,10 +1,16 @@
 // Shared definitions for Jaldimac click configurations
 
-// $HOST_IP, $HOST_MAC, and $PROXY_ARP_NETWORK must already be defined when this file is included!
+// $HOST_IP, $HOST_MAC, $PROXY_ARP_NETWORK, and $STATION_ID must already be defined when this file is included!
 // Examples:
 // #define $HOST_IP 10.0.0.1
 // #define $HOST_MAC 00:11:22:33:44:55
 // #define $PROXY_ARP_NETWORK 10.0.0.0/24
+// #define $STATION_ID 1
+
+// ======================================================
+// Required packages
+// ======================================================
+require(package jaldi)
 
 // ======================================================
 // Constants
@@ -48,7 +54,6 @@
 // TEMP --- REMOVE THIS --- TEMP
 
 elementclass PullToPush { input -> DelayUnqueue(0) -> output }
-elementclass JaldiStripAndClassify { input -> t :: Tee ; t[0] -> [0]output ; t[1] -> [1]output }
 elementclass JaldiFairness { input[$BULK] -> PullToPush -> [$BULK]output
 			     input[$CONTROL] -> PullToPush -> [$CONTROL]output
 			     input[$VOIP] -> PullToPush -> [$VOIP]output }
@@ -76,10 +81,10 @@ elementclass EthernetToIP
 
 elementclass JaldiToIP
 {
-	jsac :: JaldiStripAndClassify
-	input -> jsac
-	jsac[$DATA] -> Paint($LOCALLY_ORIGINATING) ->[$DATA]output	// One output for data (IP packets)
-	jsac[$CONTROL] -> [$CONTROL]output				// Another output for control info
+	jd :: JaldiDecap($STATION_ID)
+	input -> jd
+	jd[$DATA] -> Paint($LOCALLY_ORIGINATING) -> [$DATA]output	// One output for data (IP packets)
+	jd[$CONTROL] -> [$CONTROL]output				// Another output for control info
 }
 
 elementclass IPToEthernet
@@ -92,8 +97,8 @@ elementclass IPToEthernet
 
 elementclass IPToJaldi
 {
-	$type |
-	input -> /* JaldiEncapsulate($type) */ Null -> output
+	$type, $dest |
+	input -> JaldiEncap($type, $dest) -> output
 }
 
 // Classifiers
