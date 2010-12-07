@@ -111,10 +111,14 @@ irqreturn_t jaldi_isr(int irq, void *dev)
 	struct jaldi_hw *hw = sc->hw;
 	bool sched;
 
+	DBG_START_MSG;
+
 	if (hw->dev_state != JALDI_HW_INITIALIZED) { return IRQ_NONE; }
 	
 	/* shared irq, not for us */
 	if(!jaldi_hw_intrpend(hw)) { return IRQ_NONE; }
+
+	OHAI;
 
 	/*
 	 * Figure out the reason(s) for the interrupt.  Note
@@ -124,6 +128,8 @@ irqreturn_t jaldi_isr(int irq, void *dev)
 	 */
 	hw->ops.get_isr(hw, &status);	/* NB: clears ISR too */
 	status &= hw->imask;	/* discard unasked-for bits */
+
+	jaldi_print(JALDI_DEBUG, "intr status 0x%.8x, imask 0x%x\n", status, hw->imask);
 
 	/*
 	 * If there are no status bits set, then this interrupt was not
@@ -149,11 +155,15 @@ irqreturn_t jaldi_isr(int irq, void *dev)
 //	if (status & JALDI_INT_SWBA)
 //		tasklet_schedule(&sc->bcon_tasklet);
 
+	OHAI;
+
 	if (status & JALDI_INT_TXURN)
 		jaldi_hw_updatetxtriglevel(hw, true);
 
 	if (hw->caps.hw_caps & JALDI_HW_CAP_EDMA) {
+		OHAI;
 		if (status & JALDI_INT_RXEOL) {
+			OHAI;
 			hw->imask &= ~(JALDI_INT_RXEOL | JALDI_INT_RXORN);
 			jaldi_hw_set_interrupts(hw, hw->imask);
 		}
@@ -186,9 +196,16 @@ chip_reset:
 		 * of rx, but it may be necessary to handle at least latency-sensitive 
 		 * packets during the interrupt handler.
 		 * 
-		 * tasklet_schedule(&sc->intr_tq);
+		 * EDIT on the above: still need to look into this, but the rx 
+		 * processing needs locks, which can't be done in interrupt 
+		 * context. So we need to find some way around this.
+		 * 
 		 */
+
+		 tasklet_schedule(&sc->intr_tq);
 	}
+
+	DBG_END_MSG;
 
 	return IRQ_HANDLED;
 
@@ -295,6 +312,8 @@ int jaldi_startrecv(struct jaldi_softc *sc)
 	struct jaldi_hw *hw = sc->hw;
 	struct jaldi_buf *bf, *tbf;
 
+	DBG_START_MSG;
+
 	spin_lock_bh(&sc->rx.rxbuflock);
 	if (list_empty(&sc->rx.rxbuf))
 		goto start_recv;
@@ -314,8 +333,10 @@ int jaldi_startrecv(struct jaldi_softc *sc)
 
 start_recv:
 	spin_unlock_bh(&sc->rx.rxbuflock);
-	jaldi_opmode_init(sc); // TODO
+	jaldi_opmode_init(sc);
 	jaldi_hw_startpcureceive(hw);
+
+	DBG_END_MSG;
 
 	return 0;
 }
@@ -338,38 +359,185 @@ void jaldi_flushrecv(struct jaldi_softc *sc)
 {
 	spin_lock_bh(&sc->rx.rxflushlock);
 	sc->sc_flags |= SC_OP_RXFLUSH;
-	jaldi_print(JALDI_WARN, "recv flush is not currently implemented.\n");
-//	ath_rx_tasklet(sc, 1, false); // TODO
+	jaldi_rx_tasklet(sc, 1); 
 	sc->sc_flags &= ~SC_OP_RXFLUSH;
 	spin_unlock_bh(&sc->rx.rxflushlock);
 }
 
-/* Method stub from snull -- call from interrupt handler */
-void jaldi_rx(struct net_device *dev, struct jaldi_packet *pkt)
+static struct jaldi_buf *jaldi_get_next_rx_buf(struct jaldi_softc *sc,
+						struct jaldi_rx_status *rs)
 {
-	struct sk_buff *skb;
-	struct jaldi_softc *sc = netdev_priv(dev);
-	
-	skb = dev_alloc_skb(pkt->datalen+2);
-	
-	if(!skb) {
-		if (printk_ratelimit())
-			printk(KERN_NOTICE "jaldi_rx: low on mem - packet dropped\n");
-		sc->stats.rx_dropped++;
-		goto out;
+	struct jaldi_hw *hw = sc->hw;
+	struct jaldi_desc *ds;
+	struct jaldi_buf *bf;
+	int ret;
+
+	if (list_empty(&sc->rx.rxbuf)) {
+		sc->rx.rxlink = NULL;
+		return NULL;
 	}
-	
-	skb_reserve(skb,2);
-	memcpy(skb_put(skb,pkt->datalen),pkt->data,pkt->datalen);
-	
-	skb->dev = dev;
-	skb->protocol = eth_type_trans(skb, dev);
-	skb->ip_summed = CHECKSUM_NONE;
-	sc->stats.rx_packets++;
-	sc->stats.rx_bytes += pkt->datalen;
-	netif_rx(skb);
-  out:
-  	return;
+
+	bf = list_first_entry(&sc->rx.rxbuf, struct jaldi_buf, list);
+	ds = bf->bf_desc;
+
+	/*
+	 * Must provide the virtual address of the current
+	 * descriptor, the physical address, and the virtual
+	 * address of the next descriptor in the h/w chain.
+	 * This allows the HAL to look ahead to see if the
+	 * hardware is done with a descriptor by checking the
+	 * done bit in the following descriptor and the address
+	 * of the current descriptor the DMA engine is working
+	 * on.  All this is necessary because of our use of
+	 * a self-linked list to avoid rx overruns.
+	 */
+	ret = jaldi_hw_rxprocdesc(hw, ds, rs, 0);
+	if (ret == -EINPROGRESS) {
+		struct jaldi_rx_status trs;
+		struct jaldi_buf *tbf;
+		struct jaldi_desc *tds;
+
+		memset(&trs, 0, sizeof(trs));
+		if (list_is_last(&bf->list, &sc->rx.rxbuf)) {
+			sc->rx.rxlink = NULL;
+		}
+
+		tbf = list_entry(bf->list.next, struct jaldi_buf, list);
+
+		/*
+		 * On some hardware the descriptor status words could
+		 * get corrupted, including the done bit. Because of
+		 * this, check if the next descriptor's done bit is
+		 * set or not.
+		 *
+		 * If the next descriptor's done bit is set, the current
+		 * descriptor has been corrupted. Force s/w to discard
+		 * this descriptor and continue...
+		 */
+
+		tds = tbf->bf_desc;
+		ret = jaldi_hw_rxprocdesc(hw, tds, &trs, 0);
+		if (ret == -EINPROGRESS)
+			return NULL;
+	}
+
+	if (!bf->bf_mpdu)
+		return bf;
+
+	/*
+	 * Synchronize the DMA transfer with CPU before
+	 * 1. accessing the frame
+	 * 2. requeueing the same buffer to h/w
+	 */
+	dma_sync_single_for_cpu(sc->dev, bf->bf_buf_addr,
+			sc->rx_bufsize,
+			DMA_FROM_DEVICE);
+
+	return bf;
+}
+
+
+int jaldi_rx_tasklet(struct jaldi_softc *sc, int flush)
+{
+	struct sk_buff *skb, *requeue_skb;
+	struct jaldi_buf *bf;
+	struct jaldi_hw *hw = sc->hw;
+	struct jaldi_rx_status rs;
+	DBG_START_MSG;
+	spin_lock_bh(&sc->rx.rxbuflock);
+
+	do {
+		OHAI;
+		/* If handling rx interrupt and flush is in progress => exit */
+		if ((sc->sc_flags & SC_OP_RXFLUSH) && (flush == 0))
+			break;
+
+		memset(&rs, 0, sizeof(rs));
+		bf = jaldi_get_next_rx_buf(sc, &rs);
+
+		if (!bf)
+			break;
+
+		skb = bf->bf_mpdu;
+		if (!skb)
+			continue;
+		OHAI;
+		//ath_debug_stat_rx(sc, &rs); // TODO
+
+		/*
+		 * If we're asked to flush receive queue, directly
+		 * chain it back at the queue without processing it.
+		 */
+		if (flush)
+			goto requeue;
+
+		/* TODO This is where we should check to see if we want to 
+		 * accept the packet (since we don't do checking, we accept 
+		 * everything: CRC failures, etc.). We should also put the 
+		 * relevant rx status information into the packet payload. 
+		 * See ath9k_rx_skb_preprocess and ath9k_rx_accept. */
+
+
+		/* Ensure we always have an skb to requeue once we are done
+		 * processing the current buffer's skb */
+		requeue_skb = jaldi_rxbuf_alloc(sc, sc->rx_bufsize);
+
+		/* If there is no memory we ignore the current RX'd frame,
+		 * tell hardware it can give us a new frame using the old
+		 * skb and put it at the tail of the sc->rx.rxbuf list for
+		 * processing. */
+		if (!requeue_skb)
+			goto requeue;
+
+		/* Unmap the frame */
+		dma_unmap_single(sc->dev, bf->bf_buf_addr,
+				 sc->rx_bufsize,
+				 DMA_FROM_DEVICE);
+
+		/* We will now give hardware our shiny new allocated skb */
+		bf->bf_mpdu = requeue_skb;
+		bf->bf_buf_addr = dma_map_single(sc->dev, requeue_skb->data,
+						 sc->rx_bufsize,
+						 DMA_FROM_DEVICE);
+		if (unlikely(dma_mapping_error(sc->dev,
+			  bf->bf_buf_addr))) {
+			dev_kfree_skb_any(requeue_skb);
+			bf->bf_mpdu = NULL;
+			jaldi_print(JALDI_FATAL,
+				  "dma_mapping_error() on RX\n");
+			netif_rx(skb);
+			break;
+		}
+		bf->bf_dmacontext = bf->bf_buf_addr;
+
+		/*
+		 * change the default rx antenna if rx diversity chooses the
+		 * other antenna 3 times in a row.
+		 */
+		if (sc->rx.defant != rs.rs_antenna) {
+			if (++sc->rx.rxotherant >= 3)
+				jaldi_print(JALDI_INFO, "antenna %d -> %d\n",
+					sc->rx.defant, rs.rs_antenna);
+				//ath_setdefantenna(sc, rs.rs_antenna); // TODO
+		} else {
+			sc->rx.rxotherant = 0;
+		}
+
+		skb->dev = sc->net_dev;
+		skb->protocol = eth_type_trans(skb, sc->net_dev);
+		skb->ip_summed = CHECKSUM_NONE;
+		sc->stats.rx_packets++;
+		sc->stats.rx_bytes += skb->data_len;
+		netif_rx(skb);
+
+requeue:
+		list_move_tail(&bf->list, &sc->rx.rxbuf);
+		jaldi_rx_buf_link(sc, bf);
+	} while (1);
+
+	spin_unlock_bh(&sc->rx.rxbuflock);
+
+	return 0;
 }
 
 /******/
@@ -930,24 +1098,75 @@ int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 
 }
 
-/* Enable rx interrupts */
-static void jaldi_rx_ints(struct jaldi_softc *sc, int enable)
-{
-	DBG_START_MSG;
-	sc->rx_int_enabled = enable;
+void jaldi_radio_enable(struct jaldi_softc *sc) {
+	struct jaldi_hw *hw = sc->hw;
+	int r;
 
-}
-/* Enable tx interrupts */
-static void jaldi_tx_ints(struct jaldi_softc *sc, int enable)
-{
 	DBG_START_MSG;
-	sc->tx_int_enabled = enable;
+
+	jaldi_ps_wakeup(sc);
+
+	if (!hw->curchan)
+		hw->curchan = &sc->chans[JALDI_5GHZ][0]; /* default is chan 36 (5180Mhz, 14) */
+	
+	spin_lock_bh(&sc->sc_resetlock);
+	r = jaldi_hw_reset(hw, hw->curchan, false);
+	if (r) {
+		jaldi_print(JALDI_FATAL,
+			  "Unable to reset channel (%u MHz), "
+			  "reset status %d\n",
+			  hw->curchan->center_freq, r);
+	}
+	spin_unlock_bh(&sc->sc_resetlock);
+	
+	OHAI;
+
+	jaldi_update_txpow(sc, sc->curtxpow);
+	if (jaldi_startrecv(sc) != 0) {
+		jaldi_print(JALDI_FATAL,
+			  "Unable to restart recv logic\n");
+		return;
+	}
+
+	OHAI;
+
+	/* Re-Enable  interrupts */
+	jaldi_hw_set_interrupts(hw, hw->imask);
+
+	//ieee80211_wake_queues(hw);
+	jaldi_ps_restore(sc);
 }
 
-/* Set up a device's packet pool. (from snull) */
-void jaldi_setup_pool(struct net_device *dev)
+void jaldi_radio_disable(struct jaldi_softc *sc)
 {
-	return; /* TODO: Implement this */
+	struct jaldi_hw *hw = sc->hw;
+	int r;
+
+	jaldi_ps_wakeup(sc);
+	//ieee80211_stop_queues(hw);
+
+	/* Disable interrupts */
+	jaldi_hw_set_interrupts(hw, 0);
+
+	jaldi_drain_all_txq(sc, false);	/* clear pending tx frames */
+	jaldi_stoprecv(sc);		/* turn off frame recv */
+	jaldi_flushrecv(sc);		/* flush recv queue */
+
+	if (!hw->curchan)
+		hw->curchan = &sc->chans[JALDI_5GHZ][0]; /* default is chan 36 (5180Mhz, 14) */
+
+	spin_lock_bh(&sc->sc_resetlock);
+	r = jaldi_hw_reset(hw, hw->curchan, false);
+	if (r) {
+		jaldi_print(JALDI_FATAL,
+			  "Unable to reset channel (%u MHz), "
+			  "reset status %d\n",
+			  hw->curchan->center_freq, r);
+	}
+	spin_unlock_bh(&sc->sc_resetlock);
+
+	jaldi_ps_restore(sc);
+	jaldi_setpower(sc, JALDI_PM_FULL_SLEEP);
 }
 
 /*
@@ -985,7 +1204,19 @@ int jaldi_open(struct net_device *dev)
 	}
 	spin_unlock_bh(&sc->sc_resetlock);
 
+	if (jaldi_startrecv(sc) != 0) {
+		jaldi_print(JALDI_FATAL,
+			  "Unable to restart recv logic\n");
+		r = -EIO;
+		goto mutex_unlock;
+	}
 
+	OHAI;
+
+	hw->imask = JALDI_INT_TX | JALDI_INT_RXEOL | JALDI_INT_RXORN 
+			| JALDI_INT_RX | JALDI_INT_FATAL | JALDI_INT_GLOBAL;
+
+	jaldi_radio_enable(sc);
 
 	netif_start_queue(dev);
 
@@ -993,6 +1224,30 @@ mutex_unlock:
 	mutex_unlock(&sc->mutex);
 
 	return r;
+}
+
+void jaldi_tasklet(unsigned long data)
+{
+	struct jaldi_softc *sc = (struct jaldi_softc *)data;
+	struct jaldi_hw *hw = sc->hw;
+
+	u32 status = sc->intrstatus;
+
+	if (status & JALDI_INT_FATAL) { 
+		jaldi_print(JALDI_FATAL, "Fatal interrupt status!\n");
+	}
+
+	
+	if (status & (JALDI_INT_RX | JALDI_INT_RXEOL
+			| JALDI_INT_RXORN)) {
+		spin_lock_bh(&sc->rx.rxflushlock);
+		jaldi_rx_tasklet(sc, 0);
+		spin_unlock_bh(&sc->rx.rxflushlock);
+	}
+
+	jaldi_hw_set_interrupts(hw, hw->imask);
+	jaldi_ps_restore(sc);
+
 }
 
 void jaldi_cleanup(void)

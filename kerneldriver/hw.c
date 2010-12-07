@@ -1525,6 +1525,86 @@ void jaldi_hw_setrxfilter(struct jaldi_hw *hw, u32 bits)
 	DISABLE_REGWRITE_BUFFER(hw);
 }
 
+/* XXX There's a lot of "ATH9K" in here: that means I haven't really studied 
+ * is going on here. However, they are mostly just constants, so I've left them
+ * as is for expediency's sake. We're not looking at most of this anyway. */
+int jaldi_hw_rxprocdesc(struct jaldi_hw *hw, struct jaldi_desc *ds,
+			struct jaldi_rx_status *rs, u64 tsf)
+{
+	struct ar5416_desc ads;
+	struct ar5416_desc *adsp = AR5416DESC(ds);
+	u32 phyerr;
+
+	if ((adsp->ds_rxstatus8 & AR_RxDone) == 0)
+		return -EINPROGRESS;
+
+	ads.u.rx = adsp->u.rx;
+
+	rs->rs_status = 0;
+	rs->rs_flags = 0;
+
+	rs->rs_datalen = ads.ds_rxstatus1 & AR_DataLen;
+	rs->rs_tstamp = ads.AR_RcvTimestamp;
+
+	if (ads.ds_rxstatus8 & AR_PostDelimCRCErr) {
+		rs->rs_rssi = JALDI_RSSI_BAD;
+		rs->rs_rssi_ctl0 = JALDI_RSSI_BAD;
+		rs->rs_rssi_ctl1 = JALDI_RSSI_BAD;
+		rs->rs_rssi_ctl2 = JALDI_RSSI_BAD;
+		rs->rs_rssi_ext0 = JALDI_RSSI_BAD;
+		rs->rs_rssi_ext1 = JALDI_RSSI_BAD;
+		rs->rs_rssi_ext2 = JALDI_RSSI_BAD;
+	} else {
+		rs->rs_rssi = MS(ads.ds_rxstatus4, AR_RxRSSICombined);
+		rs->rs_rssi_ctl0 = MS(ads.ds_rxstatus0,
+						AR_RxRSSIAnt00);
+		rs->rs_rssi_ctl1 = MS(ads.ds_rxstatus0,
+						AR_RxRSSIAnt01);
+		rs->rs_rssi_ctl2 = MS(ads.ds_rxstatus0,
+						AR_RxRSSIAnt02);
+		rs->rs_rssi_ext0 = MS(ads.ds_rxstatus4,
+						AR_RxRSSIAnt10);
+		rs->rs_rssi_ext1 = MS(ads.ds_rxstatus4,
+						AR_RxRSSIAnt11);
+		rs->rs_rssi_ext2 = MS(ads.ds_rxstatus4,
+						AR_RxRSSIAnt12);
+	}
+
+	rs->rs_rate = RXSTATUS_RATE(hw, (&ads));
+	rs->rs_more = (ads.ds_rxstatus1 & AR_RxMore) ? 1 : 0;
+
+	rs->rs_isaggr = (ads.ds_rxstatus8 & AR_RxAggr) ? 1 : 0;
+	rs->rs_moreaggr =
+		(ads.ds_rxstatus8 & AR_RxMoreAggr) ? 1 : 0;
+	rs->rs_antenna = MS(ads.ds_rxstatus3, AR_RxAntenna);
+	rs->rs_flags =
+		(ads.ds_rxstatus3 & AR_GI) ? ATH9K_RX_GI : 0;
+	rs->rs_flags |=
+		(ads.ds_rxstatus3 & AR_2040) ? ATH9K_RX_2040 : 0;
+
+	if (ads.ds_rxstatus8 & AR_PreDelimCRCErr)
+		rs->rs_flags |= ATH9K_RX_DELIM_CRC_PRE;
+	if (ads.ds_rxstatus8 & AR_PostDelimCRCErr)
+		rs->rs_flags |= ATH9K_RX_DELIM_CRC_POST;
+	if (ads.ds_rxstatus8 & AR_DecryptBusyErr)
+		rs->rs_flags |= ATH9K_RX_DECRYPT_BUSY;
+
+	if ((ads.ds_rxstatus8 & AR_RxFrameOK) == 0) {
+		if (ads.ds_rxstatus8 & AR_CRCErr)
+			rs->rs_status |= ATH9K_RXERR_CRC;
+		else if (ads.ds_rxstatus8 & AR_PHYErr) {
+			rs->rs_status |= ATH9K_RXERR_PHY;
+			phyerr = MS(ads.ds_rxstatus8, AR_PHYErrCode);
+			rs->rs_phyerr = phyerr;
+		} else if (ads.ds_rxstatus8 & AR_DecryptCRCErr)
+			rs->rs_status |= ATH9K_RXERR_DECRYPT;
+		else if (ads.ds_rxstatus8 & AR_MichaelErr)
+			rs->rs_status |= ATH9K_RXERR_MIC;
+	}
+
+	return 0;
+}
+
 void jaldi_hw_set_txpowerlimit(struct jaldi_hw *hw, u32 limit)
 {
 	struct jaldi_channel *chan = hw->curchan;
@@ -2046,6 +2126,7 @@ void jaldi_hw_putrxbuf(struct jaldi_hw *hw, u32 rxdp)
 
 void jaldi_hw_startpcureceive(struct jaldi_hw *hw)
 {
+	DBG_START_MSG;
 	REG_CLR_BIT(hw, AR_DIAG_SW, (AR_DIAG_RX_DIS | AR_DIAG_RX_ABORT));
 }
 
@@ -2097,7 +2178,8 @@ enum jaldi_intr_type jaldi_hw_set_interrupts(struct jaldi_hw *hw,
 	enum jaldi_intr_type omask = hw->imask;
 	u32 mask, mask2;
 	struct jaldi_hw_capabilities *pCap = &hw->caps;
-
+	
+	DBG_START_MSG;
 	jaldi_print(JALDI_DEBUG, "0x%x => 0x%x\n", omask, ints);
 
 	if (omask & JALDI_INT_GLOBAL) {
@@ -2204,7 +2286,7 @@ enum jaldi_intr_type jaldi_hw_set_interrupts(struct jaldi_hw *hw,
 		jaldi_print(JALDI_DEBUG, "AR_IMR 0x%x IER 0x%x\n",
 			  REG_READ(hw, AR_IMR), REG_READ(hw, AR_IER));
 	}
-
+	DBG_END_MSG;
 	return omask;
 }
 
@@ -2233,6 +2315,8 @@ static bool ar9002_hw_get_isr(struct jaldi_hw *hw, enum jaldi_intr_type *masked)
 	struct jaldi_hw_capabilities *pCap = &hw->caps;
 	u32 sync_cause = 0;
 	bool fatal_int = false;
+
+	DBG_START_MSG;
 
 	if (!AR_SREV_9100(hw)) {
 		if (REG_READ(hw, AR_INTR_ASYNC_CAUSE) & AR_INTR_MAC_IRQ) {
@@ -2373,6 +2457,8 @@ static bool ar9002_hw_get_isr(struct jaldi_hw *hw, enum jaldi_intr_type *masked)
 		REG_WRITE(hw, AR_INTR_SYNC_CAUSE_CLR, sync_cause);
 		(void) REG_READ(hw, AR_INTR_SYNC_CAUSE_CLR);
 	}
+
+	DBG_END_MSG;
 
 	return true;
 }

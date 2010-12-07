@@ -17,7 +17,7 @@
 #ifndef MAC_H
 #define MAC_H
 
-#define RXSTATUS_RATE(ah, ads) (AR_SREV_5416_20_OR_LATER(ah) ?		\
+#define RXSTATUS_RATE(hw, ads) (AR_SREV_5416_20_OR_LATER(hw) ?		\
 				MS(ads->ds_rxstatus0, AR_RxRate) :	\
 				(ads->ds_rxstatus3 >> 2) & 0xFF)
 
@@ -627,6 +627,8 @@ void jaldi_hw_abortpcurecv(struct jaldi_hw *hw);
 bool jaldi_hw_stopdmarecv(struct jaldi_hw *hw);
 void jaldi_hw_setuprxdesc(struct jaldi_hw *hw, struct jaldi_desc *ds,
 			  u32 size, u32 flags);
+int jaldi_hw_rxprocdesc(struct jaldi_hw *ah, struct jaldi_desc *ds,
+			struct jaldi_rx_status *rs, u64 tsf);
 /*
 void ath9k_hw_cleartxdesc(struct ath_hw *ah, void *ds);
 bool ath9k_hw_stoptxdma(struct ath_hw *ah, u32 q);
@@ -635,8 +637,6 @@ bool ath9k_hw_set_txq_props(struct ath_hw *ah, int q,
 			    const struct ath9k_tx_queue_info *qinfo);
 bool ath9k_hw_get_txq_props(struct ath_hw *ah, int q,
 			    struct ath9k_tx_queue_info *qinfo);
-int ath9k_hw_rxprocdesc(struct ath_hw *ah, struct ath_desc *ds,
-			struct ath_rx_status *rs, u64 tsf);
 int ath9k_hw_beaconq_setup(struct ath_hw *ah);
 
 void ar9002_hw_attach_mac_ops(struct ath_hw *ah);

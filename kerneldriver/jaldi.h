@@ -194,7 +194,7 @@ struct jaldi_softc {
 	struct net_device *net_dev;
 
 	/* Hardware related */
-	struct tasklet_struct intr_tq; // interrupt task queue
+	struct tasklet_struct intr_tq; // jaldi_tasklet, general intr bottom
 	struct jaldi_hw *hw; // from ath9k_hw, hw main struct
 	void __iomem *mem; // see pci_iomap and lwn article
 	int irq; // irq number...
@@ -248,6 +248,7 @@ void jaldi_ahb_exit(void);
 struct net_device *jaldi_init_netdev(void);
 int jaldi_start_netdev(struct jaldi_softc *sc);
 void jaldi_attach_netdev_ops(struct net_device *dev);
+void jaldi_tasklet(unsigned long data);
 
 int jaldi_hw_reset(struct jaldi_hw *hw, struct jaldi_channel *chan, bool bChannelChange);
 bool jaldi_setpower(struct jaldi_softc *sc, enum jaldi_power_mode mode);
@@ -261,6 +262,7 @@ struct jaldi_txq *jaldi_txq_setup(struct jaldi_softc *sc, int qtype, int subtype
 int jaldi_tx_setup(struct jaldi_softc *sc, int haltype);
 void jaldi_tx_cleanup(struct jaldi_softc *sc);
 void jaldi_rx_cleanup(struct jaldi_softc *sc);
+struct sk_buff *jaldi_rxbuf_alloc(struct jaldi_softc *sc, u32 len);
 
 int jaldi_descdma_setup(struct jaldi_softc *sc, struct jaldi_descdma *dd,
 		      struct list_head *head, const char *name,
@@ -270,6 +272,7 @@ void jaldi_descdma_cleanup(struct jaldi_softc *sc, struct jaldi_descdma *dd,
 
 void jaldi_tx_cleanupq(struct jaldi_softc *sc, struct jaldi_txq *txq);
 irqreturn_t jaldi_isr(int irq, void *dev);
+int jaldi_rx_tasklet(struct jaldi_softc *sc, int flush);
 
 #endif /* JALDI_H */
 

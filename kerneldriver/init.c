@@ -465,6 +465,7 @@ int jaldi_init_softc(u16 devid, struct jaldi_softc *sc, u16 subsysid, const stru
 	spin_lock_init(&sc->sc_pm_lock);
 	spin_lock_init(&sc->sc_serial_rw);
 	mutex_init(&sc->mutex);
+	tasklet_init(&sc->intr_tq, jaldi_tasklet, (unsigned long)sc);
 	/* init tasklets and other locks here */
 
 	hw->bus_ops->read_cachesize(sc, &csz); 
@@ -485,7 +486,7 @@ int jaldi_init_softc(u16 devid, struct jaldi_softc *sc, u16 subsysid, const stru
 err_queues:
 	jaldi_hw_deinit(hw);
 err_hw:
-	/* need to kill any tasklets we started */
+	tasklet_kill(&sc->intr_tq);
 	kfree(hw);
 	sc->hw = NULL;
 	jaldi_print(JALDI_FATAL,"init_device failed, ret=%d\n",ret);
@@ -547,6 +548,8 @@ static void jaldi_deinit_softc(struct jaldi_softc *sc)
 
 	jaldi_hw_deinit(sc->hw);
 
+	tasklet_kill(&sc->intr_tq);
+
 	kfree(sc->hw);
 	sc->hw = NULL;
 }
@@ -556,7 +559,7 @@ void jaldi_deinit_device(struct jaldi_softc *sc)
 	DBG_START_MSG;	
 	jaldi_ps_wakeup(sc); 
 
-//	jaldi_rx_cleanup(sc); // TODO 
+	jaldi_rx_cleanup(sc);  
 	jaldi_tx_cleanup(sc); 
 	jaldi_deinit_softc(sc);
 }
