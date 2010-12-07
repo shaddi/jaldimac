@@ -79,9 +79,11 @@
 /***********/
 /* RX / TX */
 /***********/
+#define JALDI_MAX_MPDU_LEN	1500 /* MTU, bytes */
 #define JALDI_MAX_ANTENNA	3
 #define JALDI_NUM_RXBUF		512
 #define JALDI_NUM_TXBUF		512
+#define JALDI_TX_ERROR        0x01
 
 
 struct jaldi_wiphy;
@@ -175,11 +177,21 @@ struct jaldi_tx {
 	struct jaldi_descdma txdma;
 };
 
+struct jaldi_rx {
+	u8 defant;
+	u8 rxotherant;
+	u32 *rxlink;
+	unsigned int rxfilter;
+	spinlock_t rxflushlock;
+	spinlock_t rxbuflock;
+	struct list_head rxbuf;
+	struct jaldi_descdma rxdma;
+	struct jaldi_buf *rx_bufptr;
+};
+
 struct jaldi_softc {
 	struct device *dev;
 	struct net_device *net_dev;
-	//	spinlock_t wiphy_lock; /* spinlock to protect jaldi_wiphy data */
-	//	struct ath_wiphy *pri_wiphy;
 
 	/* Hardware related */
 	struct tasklet_struct intr_tq; // interrupt task queue
@@ -192,13 +204,16 @@ struct jaldi_softc {
 	spinlock_t sc_pm_lock;
 
 	u32 intrstatus; // keep track of reason for interrupt
-	u32 sc_flags; /* TODO: investigate the usage of this */
+	u32 sc_flags; 
 	bool hw_ready; // flag to see if hw is ready
 	u16 ps_flags; /* powersave */
 	unsigned long ps_usecount;
+	bool ps_idle;
 	u16 curtxpow; /* tx power (.5 dBm units) */
+	u16 cachelsz;
 
 	struct jaldi_channel *chans[2];
+	struct jaldi_channel curchan;
 
 
 	/* netdev */
@@ -214,6 +229,8 @@ struct jaldi_softc {
 
 	/* tx/rx */
 	struct jaldi_tx tx;
+	struct jaldi_rx rx;
+	u32 rx_bufsize;
 
 	/* ops */
 	// none at softc level yet...
@@ -235,6 +252,7 @@ void jaldi_attach_netdev_ops(struct net_device *dev);
 int jaldi_hw_reset(struct jaldi_hw *hw, struct jaldi_channel *chan, bool bChannelChange);
 bool jaldi_setpower(struct jaldi_softc *sc, enum jaldi_power_mode mode);
 void jaldi_ps_wakeup(struct jaldi_softc *sc);
+
 int jaldi_init_softc(u16 devid, struct jaldi_softc *sc, u16 subsysid, const struct jaldi_bus_ops *bus_ops);
 int jaldi_init_device(u16 devid, struct jaldi_softc *sc, u16 subsysid, const struct jaldi_bus_ops *bus_ops);
 void jaldi_deinit_device(struct jaldi_softc *sc);
@@ -242,6 +260,7 @@ int jaldi_init_interrupts(struct jaldi_softc *sc);
 struct jaldi_txq *jaldi_txq_setup(struct jaldi_softc *sc, int qtype, int subtype);
 int jaldi_tx_setup(struct jaldi_softc *sc, int haltype);
 void jaldi_tx_cleanup(struct jaldi_softc *sc);
+void jaldi_rx_cleanup(struct jaldi_softc *sc);
 
 int jaldi_descdma_setup(struct jaldi_softc *sc, struct jaldi_descdma *dd,
 		      struct list_head *head, const char *name,

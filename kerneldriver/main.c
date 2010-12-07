@@ -42,6 +42,22 @@ void jaldi_ps_wakeup(struct jaldi_softc *sc)
 	spin_unlock_irqrestore(&sc->sc_pm_lock, flags);
 }
 
+void jaldi_ps_restore(struct jaldi_softc *sc)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&sc->sc_pm_lock, flags);
+	if (--sc->ps_usecount != 0)
+		goto unlock;
+
+	if (sc->ps_idle)
+		jaldi_hw_setpower(sc->hw, JALDI_PM_FULL_SLEEP);
+
+unlock:
+	spin_unlock_irqrestore(&sc->sc_pm_lock, flags);
+}
+
+
 /* Maintains a priority queue of jaldi_packets to be sent */
 void jaldi_tx_enqueue(struct jaldi_softc *sc, struct jaldi_packet *pkt) {
 	unsigned long flags;
@@ -77,15 +93,106 @@ struct jaldi_packet *jaldi_tx_dequeue(struct jaldi_softc *sc) {
 
 irqreturn_t jaldi_isr(int irq, void *dev)
 {
+#define SCHED_INTR (				\
+		JALDI_INT_FATAL |		\
+		JALDI_INT_RXORN |		\
+		JALDI_INT_RXEOL |		\
+		JALDI_INT_RX |			\
+		JALDI_INT_RXLP |		\
+		JALDI_INT_RXHP |		\
+		JALDI_INT_TX |			\
+		JALDI_INT_BMISS |		\
+		JALDI_INT_CST |			\
+		JALDI_INT_TSFOOR |		\
+		JALDI_INT_GENTIMER)
+
+	enum jaldi_intr_type status;
 	struct jaldi_softc *sc = dev;
 	struct jaldi_hw *hw = sc->hw;
+	bool sched;
 
 	if (hw->dev_state != JALDI_HW_INITIALIZED) { return IRQ_NONE; }
 	
 	/* shared irq, not for us */
 	if(!jaldi_hw_intrpend(hw)) { return IRQ_NONE; }
 
-	jaldi_print(JALDI_DEBUG, "isr hit!\n");
+	/*
+	 * Figure out the reason(s) for the interrupt.  Note
+	 * that the hal returns a pseudo-ISR that may include
+	 * bits we haven't explicitly enabled so we mask the
+	 * value to insure we only process bits we requested.
+	 */
+	hw->ops.get_isr(hw, &status);	/* NB: clears ISR too */
+	status &= hw->imask;	/* discard unasked-for bits */
+
+	/*
+	 * If there are no status bits set, then this interrupt was not
+	 * for me (should have been caught above).
+	 */
+	if (!status)
+		return IRQ_NONE;
+
+	/* Cache the status */
+	sc->intrstatus = status;
+
+	if (status & SCHED_INTR)
+		sched = true;
+	
+	/*
+	 * If a FATAL or RXORN interrupt is received, we have to reset the
+	 * chip immediately.
+	 */
+	if ((status & JALDI_INT_FATAL) || ((status & JALDI_INT_RXORN) &&
+	    !(hw->caps.hw_caps & JALDI_HW_CAP_EDMA)))
+		goto chip_reset;
+
+//	if (status & JALDI_INT_SWBA)
+//		tasklet_schedule(&sc->bcon_tasklet);
+
+	if (status & JALDI_INT_TXURN)
+		jaldi_hw_updatetxtriglevel(hw, true);
+
+	if (hw->caps.hw_caps & JALDI_HW_CAP_EDMA) {
+		if (status & JALDI_INT_RXEOL) {
+			hw->imask &= ~(JALDI_INT_RXEOL | JALDI_INT_RXORN);
+			jaldi_hw_set_interrupts(hw, hw->imask);
+		}
+	}
+
+	if (status & JALDI_INT_MIB) {
+		/* we should be ignoring this for now */
+		jaldi_print(JALDI_WARN, "MIB intr, ignoring.\n");
+	}
+
+	if (!(hw->caps.hw_caps & JALDI_HW_CAP_AUTOSLEEP))
+		if (status & JALDI_INT_TIM_TIMER) {
+			/* Clear RxAbort bit so that we can
+			 * receive frames */
+			jaldi_setpower(sc, JALDI_PM_AWAKE);
+			jaldi_hw_setrxabort(hw, 0);
+		}
+
+chip_reset:
+
+//	ath_debug_stat_interrupt(sc, status);
+
+	if (sched) {
+		/* turn off every interrupt except SWBA */
+		jaldi_hw_set_interrupts(hw, (hw->imask & JALDI_INT_SWBA));
+	
+		/* Here, ath9k schedules the ath tasklet which in turn will call
+		 * the proper rx tasklet to handle rx. We need to determine if we can 
+		 * tolerate the latency that this incurs: ideally we can postpone handling
+		 * of rx, but it may be necessary to handle at least latency-sensitive 
+		 * packets during the interrupt handler.
+		 * 
+		 * tasklet_schedule(&sc->intr_tq);
+		 */
+	}
+
+	return IRQ_HANDLED;
+
+#undef SCHED_INTR
 }
 
 	
@@ -94,6 +201,147 @@ int jaldi_release(struct net_device *dev)
 {
 	netif_stop_queue(dev);
 	return 0;
+}
+
+/******/
+/* RX */
+/******/
+/*
+ * Calculate the receive filter according to the
+ * operating mode and state:
+ * o Just grab everything: we want it all. Handle processing at higher level.
+ * o Always maintain current state of phy error reception (the hal
+ *   may enable phy error frames for (future) noise immunity work)
+ */
+
+u32 jaldi_calcrxfilter(struct jaldi_softc *sc)
+{
+#define	RX_FILTER_PRESERVE (JALDI_RX_FILTER_PHYERR | JALDI_RX_FILTER_PHYRADAR)
+
+	u32 rfilt;
+
+	rfilt = (jaldi_hw_getrxfilter(sc->hw) & RX_FILTER_PRESERVE)
+		| JALDI_RX_FILTER_UCAST | JALDI_RX_FILTER_BCAST
+		| JALDI_RX_FILTER_MCAST | JALDI_RX_FILTER_CONTROL
+		| JALDI_RX_FILTER_BEACON | JALDI_RX_FILTER_PROM
+		| JALDI_RX_FILTER_PROBEREQ | JALDI_RX_FILTER_MYBEACON 
+		| JALDI_RX_FILTER_COMP_BAR | JALDI_RX_FILTER_PSPOLL
+		| JALDI_RX_FILTER_MCAST_BCAST_ALL;
+
+	return rfilt;
+
+#undef RX_FILTER_PRESERVE
+}
+
+void jaldi_opmode_init(struct jaldi_softc *sc)
+{
+	struct jaldi_hw *hw = sc->hw;
+	u32 rfilt, mfilt[2];
+
+	printk(KERN_DEBUG "jaldi: jaldi_opmode_init\n");
+
+	/* configure rx filter */
+	rfilt = jaldi_calcrxfilter(sc);
+	jaldi_hw_setrxfilter(hw, rfilt);
+
+	/* configure operational mode */
+	jaldi_hw_set_opmode(hw);
+
+	/* Handle any link-level address change. */
+	jaldi_hw_setmac(hw, sc->macaddr);
+
+	/* calculate and install multicast filter */
+	mfilt[0] = mfilt[1] = ~0;
+	jaldi_hw_setmcastfilter(hw, mfilt[0], mfilt[1]);
+}
+
+static void jaldi_rx_buf_link(struct jaldi_softc *sc, struct jaldi_buf *bf)
+{
+	struct jaldi_hw *hw = sc->hw;
+	struct jaldi_desc *ds;
+	struct sk_buff *skb;
+
+	JALDI_RXBUF_RESET(bf);
+
+	ds = bf->bf_desc;
+	ds->ds_link = 0; /* link to null */
+	ds->ds_data = bf->bf_buf_addr;
+
+	/* virtual addr of the beginning of the buffer. */
+	skb = bf->bf_mpdu;
+	BUG_ON(skb == NULL);
+	ds->ds_vdata = skb->data;
+
+	/*
+	 * setup rx descriptors. The rx_bufsize here tells the hardware
+	 * how much data it can DMA to us and that we are prepared
+	 * to process
+	 */
+	jaldi_hw_setuprxdesc(hw, ds,
+			     sc->rx_bufsize,
+			     0);
+
+	if (sc->rx.rxlink == NULL)
+		jaldi_hw_putrxbuf(hw, bf->bf_daddr);
+	else
+		*sc->rx.rxlink = bf->bf_daddr;
+
+	sc->rx.rxlink = &ds->ds_link;
+	hw->ops.rx_enable(hw);
+}
+
+int jaldi_startrecv(struct jaldi_softc *sc)
+{
+	struct jaldi_hw *hw = sc->hw;
+	struct jaldi_buf *bf, *tbf;
+
+	spin_lock_bh(&sc->rx.rxbuflock);
+	if (list_empty(&sc->rx.rxbuf))
+		goto start_recv;
+
+	sc->rx.rxlink = NULL;
+	list_for_each_entry_safe(bf, tbf, &sc->rx.rxbuf, list) {
+		jaldi_rx_buf_link(sc, bf);
+	}
+
+	/* We could have deleted elements so the list may be empty now */
+	if (list_empty(&sc->rx.rxbuf))
+		goto start_recv;
+
+	bf = list_first_entry(&sc->rx.rxbuf, struct jaldi_buf, list);
+	jaldi_hw_putrxbuf(hw, bf->bf_daddr);
+	hw->ops.rx_enable(hw);
+
+start_recv:
+	spin_unlock_bh(&sc->rx.rxbuflock);
+	jaldi_opmode_init(sc); // TODO
+	jaldi_hw_startpcureceive(hw);
+
+	return 0;
+}
+
+bool jaldi_stoprecv(struct jaldi_softc *sc)
+{
+	struct jaldi_hw *hw = sc->hw;
+	bool stopped;
+
+	jaldi_hw_stoppcurecv(hw);
+	jaldi_hw_setrxfilter(hw, 0);
+	stopped = jaldi_hw_stopdmarecv(hw);
+
+	sc->rx.rxlink = NULL;
+
+	return stopped;
+}
+
+void jaldi_flushrecv(struct jaldi_softc *sc)
+{
+	spin_lock_bh(&sc->rx.rxflushlock);
+	sc->sc_flags |= SC_OP_RXFLUSH;
+	jaldi_print(JALDI_WARN, "recv flush is not currently implemented.\n");
+//	ath_rx_tasklet(sc, 1, false); // TODO
+	sc->sc_flags &= ~SC_OP_RXFLUSH;
+	spin_unlock_bh(&sc->rx.rxflushlock);
 }
 
 /* Method stub from snull -- call from interrupt handler */
@@ -224,11 +472,36 @@ void jaldi_tx_cleanupq(struct jaldi_softc *sc, struct jaldi_txq *txq)
 	sc->tx.txqsetup &= ~(1<<txq->axq_qnum);
 }
 
+static void jaldi_tx_complete_buf(struct jaldi_softc *sc, struct jaldi_buf *bf,
+				struct jaldi_txq *txq, struct list_head *bf_q,
+				int txok)
+{
+	struct sk_buff *skb = bf->bf_mpdu;
+	unsigned long flags;
+	int tx_flags = 0;
+
+	if (!txok) {
+		tx_flags |= JALDI_TX_ERROR;
+	}
+
+	dma_unmap_single(sc->dev, bf->bf_dmacontext, skb->len, DMA_TO_DEVICE);
+
+	/* We'll need to implement this if we start tracking how many pending frames
+	 * we have in our txq's. Note that compat-wireless patches this. */
+//	jaldi_tx_complete(sc, skb, tx_flags);
+//	ath_debug_stat_tx(sc, txq, bf, ts); // TODO
+
+	/*
+	 * Return the list of ath_buf of this mpdu to free queue
+	 */
+	spin_lock_irqsave(&sc->tx.txbuflock, flags);
+	list_splice_tail_init(bf_q, &sc->tx.txbuf);
+	spin_unlock_irqrestore(&sc->tx.txbuflock, flags);
+}
+
 static int jaldi_tx_setup_buffer(struct jaldi_softc *sc, struct jaldi_buf *bf,
 					struct jaldi_packet *pkt)
 {
-
-
 	DBG_START_MSG;
 
 	JALDI_TXBUF_RESET(bf);
@@ -284,6 +557,98 @@ static void jaldi_tx_return_buffer(struct jaldi_softc *sc, struct jaldi_buf *bf)
 	spin_unlock_bh(&sc->tx.txbuflock);
 }
 
+/*
+ * Drain a given TX queue
+ *
+ * This assumes output has been stopped and
+ * we do not need to block ath_tx_tasklet.
+ */
+void jaldi_draintxq(struct jaldi_softc *sc, struct jaldi_txq *txq, bool retry_tx)
+{
+	struct jaldi_buf *bf, *lastbf;
+	struct list_head bf_head;
+	struct jaldi_tx_status ts;
+
+	memset(&ts, 0, sizeof(ts));
+	INIT_LIST_HEAD(&bf_head);
+
+	for (;;) {
+		spin_lock_bh(&txq->axq_lock);
+
+		if (list_empty(&txq->axq_q)) {
+			txq->axq_link = NULL;
+			spin_unlock_bh(&txq->axq_lock);
+			break;
+		}
+		bf = list_first_entry(&txq->axq_q, struct jaldi_buf,
+				      list);
+
+		if (bf->bf_stale) {
+			list_del(&bf->list);
+			spin_unlock_bh(&txq->axq_lock);
+
+			jaldi_tx_return_buffer(sc, bf);
+			continue;
+		}
+
+		lastbf = bf->bf_lastbf;
+		if (!retry_tx)
+			lastbf->bf_tx_aborted = true;
+
+		/* remove ath_buf's of the same mpdu from txq */
+		list_cut_position(&bf_head, &txq->axq_q, &lastbf->list);
+
+		txq->axq_depth--;
+
+		spin_unlock_bh(&txq->axq_lock);
+
+		jaldi_tx_complete_buf(sc, bf, txq, &bf_head, 0);
+	}
+
+	spin_lock_bh(&txq->axq_lock);
+	txq->axq_tx_inprogress = false;
+	spin_unlock_bh(&txq->axq_lock);
+}
+
+void jaldi_drain_all_txq(struct jaldi_softc *sc, bool retry_tx)
+{
+	struct jaldi_hw *hw = sc->hw;
+	struct jaldi_txq *txq;
+	int i, npend = 0;
+
+	if (sc->sc_flags & SC_OP_INVALID)
+		return;
+
+	/* Stop data queues */
+	for (i = 0; i < JALDI_NUM_TX_QUEUES; i++) {
+		if (JALDI_TXQ_SETUP(sc, i)) {
+			txq = &sc->tx.txq[i];
+			jaldi_hw_stoptxdma(hw, txq->axq_qnum);
+			npend += jaldi_hw_numtxpending(hw, txq->axq_qnum);
+		}
+	}
+
+	if (npend) {
+		int r;
+
+		jaldi_print(JALDI_FATAL,
+			  "Failed to stop TX DMA. Resetting hardware!\n");
+
+		spin_lock_bh(&sc->sc_resetlock);
+		r = jaldi_hw_reset(hw, sc->hw->curchan, false);
+		if (r)
+			jaldi_print(JALDI_FATAL,
+				  "Unable to reset hardware; reset status %d\n",
+				  r);
+		spin_unlock_bh(&sc->sc_resetlock);
+	}
+
+	for (i = 0; i < JALDI_NUM_TX_QUEUES; i++) {
+		if (JALDI_TXQ_SETUP(sc, i))
+			jaldi_draintxq(sc, &sc->tx.txq[i], retry_tx);
+	}
+}
+
 
 int get_jaldi_tx_from_skb(struct sk_buff *skb) {
 	return 0; // TODO: decide on a packet format and implement this by reading protocol header field
@@ -300,6 +665,90 @@ int jaldi_get_qos_type_from_skb(struct sk_buff *skb) {
 	return JALDI_QOS_BULK; // TODO: make this random-ish for testing
 }
 
+/*****************
+ * config
+ ****************/
+
+/* This is slightly different than the way ath9k sets the txpower.
+ * Txpower is set by mac80211, so they keep track of the current txpower 
+ * setting in the softc's config struct. During init, this is set to maximum 
+ * power (50 dBm, or 100 in .5 dBm units as specified in the header). As part 
+ * of handling mac80211 config changes, ath9k checks for a new value and 
+ * updates it here. After performing this update, the softc's power limit is 
+ * set to whatever mac80211 said: thus, the softc's curtxpow is actually the 
+ * last power limit that was set through mac80211. Here, we set tx power though
+ * the ctl packet interface, and the softc's value is the canonical power level
+ * used throughotu the driver. Thus, we actually update the power setting in 
+ * the hardware based on the new value we're passed by the caller, and then
+ * update the softc's value accordingly. */ 
+static void jaldi_update_txpow(struct jaldi_softc *sc, u32 newtxpow)
+{
+	struct jaldi_hw *hw = sc->hw;
+
+	if(newtxpow != sc->curtxpow) {
+		jaldi_hw_set_txpowerlimit(hw, newtxpow);
+		sc->curtxpow = newtxpow;
+	}
+}
+
+/*
+ * chan - the channel we're changing to
+ */
+int jaldi_set_channel(struct jaldi_softc *sc, struct jaldi_channel *chan)
+{
+	struct jaldi_hw *hw = sc->hw;
+	bool fastcc = true, stopped;
+	int r;
+	
+	if (sc->sc_flags & SC_OP_INVALID)
+		return -EIO;
+
+	jaldi_ps_wakeup(sc);
+	jaldi_drain_all_txq(sc, false); // TODO
+	stopped = jaldi_stoprecv(sc);
+
+	/* XXX: do not flush receive queue here. We don't want
+	 * to flush data frames already in queue because of
+	 * changing channel. */
+
+	if (!stopped || (sc->sc_flags & SC_OP_FULL_RESET))
+		fastcc = false;
+
+	jaldi_print(JALDI_DEBUG,
+		  "(%u MHz) -> (%u MHz)\n",
+		  hw->curchan->channel,
+		  chan->center_freq);
+
+	spin_lock_bh(&sc->sc_resetlock);
+
+	r = jaldi_hw_reset(hw, chan, fastcc);
+	if (r) {
+		jaldi_print(JALDI_FATAL,
+			  "Unable to reset channel (%u MHz), "
+			  "reset status %d\n",
+			  chan->center_freq, r);
+		spin_unlock_bh(&sc->sc_resetlock);
+		goto ps_restore;
+	}
+	spin_unlock_bh(&sc->sc_resetlock);
+
+	sc->sc_flags &= ~SC_OP_FULL_RESET;
+
+	if (jaldi_startrecv(sc) != 0) {
+		jaldi_print(JALDI_FATAL,
+			  "Unable to restart recv logic\n");
+		r = -EIO;
+		goto ps_restore;
+	}
+
+	//ath_cache_conf_rate(sc, &hw->conf);
+	jaldi_update_txpow(sc, sc->curtxpow);
+	jaldi_hw_set_interrupts(hw, hw->imask);
+
+ ps_restore:
+	jaldi_ps_restore(sc);
+	return r;
+}
 
 int jaldi_hw_ctl(struct jaldi_softc *sc, struct jaldi_packet *pkt) {
 	// TODO: set the right control parameters
@@ -524,7 +973,7 @@ int jaldi_open(struct net_device *dev)
 		hw->curchan = init_chan;
 	}
 
-	memcpy(dev->dev_addr, "\0JALDI0", ETH_ALEN);
+	memcpy(dev->dev_addr, sc->macaddr, ETH_ALEN);
 
 	spin_lock_bh(&sc->sc_resetlock);
 	r = jaldi_hw_reset(hw, init_chan, true); /* we're settnig channel for first time so always true */
@@ -535,6 +984,8 @@ int jaldi_open(struct net_device *dev)
 		goto mutex_unlock;
 	}
 	spin_unlock_bh(&sc->sc_resetlock);
+
+
 
 	netif_start_queue(dev);
 

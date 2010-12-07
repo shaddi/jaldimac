@@ -1214,6 +1214,7 @@ static void jaldi_hw_set_def_power_per_rate_table(struct jaldi_hw *hw,
 		}
 	}
 
+	/* this appears to be where we setup the rate table which is used by caller */
 	ratesArray[rate6mb] = ratesArray[rate9mb] = ratesArray[rate12mb] =
 		ratesArray[rate18mb] = ratesArray[rate24mb] =
 		targetPowerOfdm.tPow2x[0];
@@ -1250,10 +1251,7 @@ static void jaldi_hw_set_def_power_per_rate_table(struct jaldi_hw *hw,
 }
 
 static void jaldi_hw_def_set_txpower(struct jaldi_hw *hw,
-				    struct jaldi_channel *chan,
-				    u16 cfgCtl,
-				    u8 twiceAntennaReduction,
-				    u8 twiceMaxRegulatoryPower,
+				   struct jaldi_channel *chan,
 				    u8 powerLimit)
 {
 #define RT_AR_DELTA(x) (ratesArray[x] - cck_ofdm_delta)
@@ -1271,19 +1269,29 @@ static void jaldi_hw_def_set_txpower(struct jaldi_hw *hw,
 	    AR5416_EEP_MINOR_VER_2) {
 		ht40PowerIncForPdadc = pModal->ht40PowerIncForPdadc;
 	}
+	
+	/* this seems to set per-rate power levels according to regulatory settings.
+	 * Because we're ignoring all that, we just set the power level to the lower
+	 * of the max level and the specified powerLimit. */
 
+	/*
 	jaldi_hw_set_def_power_per_rate_table(hw, chan,
 					       &ratesArray[0], cfgCtl,
 					       twiceAntennaReduction,
 					       twiceMaxRegulatoryPower,
 					       powerLimit);
+	*/
 
+	
+
+	/* this seems to do something more meaningful, but potentially only related
+	 * to calibration. txPowerIndexOffset is never accessed in the callee and 
+	 * always is set to 0. */
 	jaldi_hw_set_def_power_cal_table(hw, chan, &txPowerIndexOffset);
 
 	for (i = 0; i < ARRAY_SIZE(ratesArray); i++) {
-		ratesArray[i] =	(int16_t)(txPowerIndexOffset + ratesArray[i]);
-		if (ratesArray[i] > AR5416_MAX_RATE_POWER)
-			ratesArray[i] = AR5416_MAX_RATE_POWER;
+		// ratesArray[i] = (int16_t)(txPowerIndexOffset + ratesArray[i]); // offset is 0
+		ratesArray[i] = (int16_t) min(powerLimit, AR5416_MAX_RATE_POWER);
 	}
 
 	if (AR_SREV_9280_10_OR_LATER(hw)) {
@@ -1292,6 +1300,7 @@ static void jaldi_hw_def_set_txpower(struct jaldi_hw *hw,
 
 			pwr_table_offset = hw->eep_ops->get_eeprom(hw,
 							EEP_PWR_TABLE_OFFSET);
+			jaldi_print(JALDI_DEBUG, "eep_pwr_table_offset: %d ratesArrayIdx: %d\n", pwr_table_offset, i);
 			ratesArray[i] -= pwr_table_offset * 2;
 		}
 	}

@@ -100,7 +100,7 @@
  */
 #define MAX_TX_FIFO_THRESHOLD   ((4096 / 64) - 1)
 
-struct ath_tx_status {
+struct jaldi_tx_status {
 	u32 ts_tstamp;
 	u16 ts_seqnum;
 	u8 ts_status;
@@ -129,7 +129,7 @@ struct ath_tx_status {
 	u32 evm2;
 };
 
-struct ath_rx_status {
+struct jaldi_rx_status {
 	u32 rs_tstamp;
 	u16 rs_datalen;
 	u8 rs_status;
@@ -154,32 +154,6 @@ struct ath_rx_status {
 	u32 evm2;
 	u32 evm3;
 	u32 evm4;
-};
-
-struct ath_htc_rx_status {
-	__be64 rs_tstamp;
-	__be16 rs_datalen;
-	u8 rs_status;
-	u8 rs_phyerr;
-	int8_t rs_rssi;
-	int8_t rs_rssi_ctl0;
-	int8_t rs_rssi_ctl1;
-	int8_t rs_rssi_ctl2;
-	int8_t rs_rssi_ext0;
-	int8_t rs_rssi_ext1;
-	int8_t rs_rssi_ext2;
-	u8 rs_keyix;
-	u8 rs_rate;
-	u8 rs_antenna;
-	u8 rs_more;
-	u8 rs_isaggr;
-	u8 rs_moreaggr;
-	u8 rs_num_delims;
-	u8 rs_flags;
-	u8 rs_dummy;
-	__be32 evm0;
-	__be32 evm1;
-	__be32 evm2;
 };
 
 #define ATH9K_RXERR_CRC           0x01
@@ -532,6 +506,9 @@ struct ar5416_desc {
 #define AR_DecryptBusyErr   0x40000000
 #define AR_KeyMiss          0x80000000
 
+/* XXX this seems to be chipset dependent (this value is from ar9002_mac.c) */
+#define AR_BufLen           0x00000fff
+
 #define	JALDI_NUM_TX_QUEUES 10
 
 enum jaldi_tx_queue_flags {
@@ -601,20 +578,20 @@ struct jaldi_tx_queue_info {
 	u32 tqi_intFlags;
 };
 
-enum ath9k_rx_filter {
-	ATH9K_RX_FILTER_UCAST = 0x00000001,
-	ATH9K_RX_FILTER_MCAST = 0x00000002,
-	ATH9K_RX_FILTER_BCAST = 0x00000004,
-	ATH9K_RX_FILTER_CONTROL = 0x00000008,
-	ATH9K_RX_FILTER_BEACON = 0x00000010,
-	ATH9K_RX_FILTER_PROM = 0x00000020,
-	ATH9K_RX_FILTER_PROBEREQ = 0x00000080,
-	ATH9K_RX_FILTER_PHYERR = 0x00000100,
-	ATH9K_RX_FILTER_MYBEACON = 0x00000200,
-	ATH9K_RX_FILTER_COMP_BAR = 0x00000400,
-	ATH9K_RX_FILTER_PSPOLL = 0x00004000,
-	ATH9K_RX_FILTER_PHYRADAR = 0x00002000,
-	ATH9K_RX_FILTER_MCAST_BCAST_ALL = 0x00008000,
+enum jaldi_rx_filter {
+	JALDI_RX_FILTER_UCAST = 0x00000001,
+	JALDI_RX_FILTER_MCAST = 0x00000002,
+	JALDI_RX_FILTER_BCAST = 0x00000004,
+	JALDI_RX_FILTER_CONTROL = 0x00000008,
+	JALDI_RX_FILTER_BEACON = 0x00000010,
+	JALDI_RX_FILTER_PROM = 0x00000020,
+	JALDI_RX_FILTER_PROBEREQ = 0x00000080,
+	JALDI_RX_FILTER_PHYERR = 0x00000100,
+	JALDI_RX_FILTER_MYBEACON = 0x00000200,
+	JALDI_RX_FILTER_COMP_BAR = 0x00000400,
+	JALDI_RX_FILTER_PSPOLL = 0x00004000,
+	JALDI_RX_FILTER_PHYRADAR = 0x00002000,
+	JALDI_RX_FILTER_MCAST_BCAST_ALL = 0x00008000,
 };
 
 #define ATH9K_RATESERIES_RTS_CTS  0x0001
@@ -648,6 +625,8 @@ void jaldi_hw_startpcureceive(struct jaldi_hw *hw);
 void jaldi_hw_stoppcurecv(struct jaldi_hw *hw);
 void jaldi_hw_abortpcurecv(struct jaldi_hw *hw);
 bool jaldi_hw_stopdmarecv(struct jaldi_hw *hw);
+void jaldi_hw_setuprxdesc(struct jaldi_hw *hw, struct jaldi_desc *ds,
+			  u32 size, u32 flags);
 /*
 void ath9k_hw_cleartxdesc(struct ath_hw *ah, void *ds);
 bool ath9k_hw_stoptxdma(struct ath_hw *ah, u32 q);
@@ -658,15 +637,7 @@ bool ath9k_hw_get_txq_props(struct ath_hw *ah, int q,
 			    struct ath9k_tx_queue_info *qinfo);
 int ath9k_hw_rxprocdesc(struct ath_hw *ah, struct ath_desc *ds,
 			struct ath_rx_status *rs, u64 tsf);
-void ath9k_hw_setuprxdesc(struct ath_hw *ah, struct ath_desc *ds,
-			  u32 size, u32 flags);
 int ath9k_hw_beaconq_setup(struct ath_hw *ah);
-*/
-/* Interrupt Handling */
-/*
-bool ath9k_hw_intrpend(struct ath_hw *ah);
-enum ath9k_int ath9k_hw_set_interrupts(struct ath_hw *ah,
-				       enum ath9k_int ints);
 
 void ar9002_hw_attach_mac_ops(struct ath_hw *ah);
 */

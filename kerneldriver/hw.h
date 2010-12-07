@@ -489,6 +489,14 @@ struct jaldi_hw {
 	int PDADCdelta;
 
 	enum jaldi_intr_type imask; /* the interrupts we care about */
+	u32 imrs2_reg;
+	u32 txok_interrupt_mask;
+	u32 txerr_interrupt_mask;
+	u32 txdesc_interrupt_mask;
+	u32 txeol_interrupt_mask;
+	u32 txurn_interrupt_mask;
+	u32 intr_gen_timer_trigger;
+	u32 intr_gen_timer_thresh;
 	bool chip_fullsleep;
 
 	struct jaldi_tx_queue_info txq[JALDI_NUM_TX_QUEUES];
@@ -523,6 +531,8 @@ void jaldi_hw_deinit(struct jaldi_hw *hw);
 void jaldi_hw_init_global_settings(struct jaldi_hw *hw);
 
 bool jaldi_hw_intrpend(struct jaldi_hw *hw);
+enum jaldi_intr_type jaldi_hw_set_interrupts(struct jaldi_hw *hw, 
+					enum jaldi_intr_type ints);
 bool jaldi_hw_wait(struct jaldi_hw *hw, u32 reg, u32 mask, u32 val, u32 timeout);
 
 void jaldi_hw_attach_phy_ops(struct jaldi_hw *hw);
@@ -537,4 +547,13 @@ void jaldi_hw_fill_txdesc(struct jaldi_hw *hw, struct jaldi_desc *ds, u32 seglen
 				  bool is_firstseg, bool is_lastseg,
 				  const struct jaldi_desc *ds0, dma_addr_t buf_addr,
 				  unsigned int qcu);
+u32 jaldi_hw_getrxfilter(struct jaldi_hw *hw);
+void jaldi_hw_setrxfilter(struct jaldi_hw *hw, u32 bits);
+bool jaldi_hw_stoptxdma(struct jaldi_hw *hw, u32 q);
+
+void jaldi_hw_set_txpowerlimit(struct jaldi_hw *hw, u32 limit);
+void jaldi_hw_setmac(struct jaldi_hw *hw, const u8 *mac);
+void jaldi_hw_setmcastfilter(struct jaldi_hw *hw, u32 filter0, u32 filter1);
+void jaldi_hw_set_opmode(struct jaldi_hw *hw);
+
 #endif

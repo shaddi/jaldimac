@@ -122,7 +122,6 @@ static const struct jaldi_register_ops jaldi_reg_ops = {
 	.write = jaldi_iowrite32,
 };
 
-// TODO: finish this. 
 /* Should set up DMA as well as worker thread to handle setting up queues, etc. */
 int jaldi_tx_init(struct jaldi_softc *sc, int nbufs)
 {
@@ -140,9 +139,107 @@ int jaldi_tx_init(struct jaldi_softc *sc, int nbufs)
 		return error;
 	}
 
+	/* TODO ath9k has a bugfix here for tx lockups after ~1hr or so, see 
+	 * ath_tx_complete_poll_work */
+
 	return 0;
 	
 }
+
+struct sk_buff *jaldi_rxbuf_alloc(struct jaldi_softc *sc, u32 len)
+{
+	struct sk_buff *skb;
+	u32 off;
+
+	/*
+	 * Cache-line-align.  This is important (for the
+	 * 5210 at least) as not doing so causes bogus data
+	 * in rx'd frames.
+	 */
+
+	/* Note: the kernel can allocate a value greater than
+	 * what we ask it to give us. We really only need 4 KB as that
+	 * is this hardware supports and in fact we need at least 3849
+	 * as that is the MAX AMSDU size this hardware supports.
+	 * Unfortunately this means we may get 8 KB here from the
+	 * kernel... and that is actually what is observed on some
+	 * systems :( */
+	skb = dev_alloc_skb(len + sc->cachelsz - 1);
+	if (skb != NULL) {
+		off = ((unsigned long) skb->data) % sc->cachelsz;
+		if (off != 0)
+			skb_reserve(skb, sc->cachelsz - off);
+	} else {
+		printk(KERN_ERR "skbuff alloc of size %u failed\n", len);
+		return NULL;
+	}
+
+	return skb;
+}
+
+int jaldi_rx_init(struct jaldi_softc *sc, int nbufs) 
+{
+	struct sk_buff *skb;
+	struct jaldi_buf *bf;
+	int error = 0;
+
+	spin_lock_init(&sc->rx.rxflushlock);
+	sc->sc_flags &= ~SC_OP_RXFLUSH;
+	spin_lock_init(&sc->rx.rxbuflock);
+	
+	/* we're not doing edma right now; if we were that would go here, like ath9k */
+
+	sc->rx_bufsize = roundup(JALDI_MAX_MPDU_LEN,
+			min(sc->cachelsz, (u16)64));
+
+	jaldi_print(JALDI_DEBUG, "cachelsz %u rxbufsize %u\n",
+			sc->cachelsz, sc->rx_bufsize);
+
+	/* Initialize rx descriptors */
+
+	error = jaldi_descdma_setup(sc, &sc->rx.rxdma, &sc->rx.rxbuf,
+			"rx", nbufs, 1, 0);
+	if (error != 0) {
+		jaldi_print(JALDI_FATAL,
+			  "failed to allocate rx descriptors: %d\n",
+			  error);
+		goto err;
+	}
+
+	list_for_each_entry(bf, &sc->rx.rxbuf, list) {
+		skb = jaldi_rxbuf_alloc(sc, sc->rx_bufsize);
+				      
+		if (skb == NULL) {
+			error = -ENOMEM;
+			goto err;
+		}
+
+		bf->bf_mpdu = skb;
+		bf->bf_buf_addr = dma_map_single(sc->dev, skb->data,
+				sc->rx_bufsize,
+				DMA_FROM_DEVICE);
+		if (unlikely(dma_mapping_error(sc->dev,
+						bf->bf_buf_addr))) {
+			dev_kfree_skb_any(skb);
+			bf->bf_mpdu = NULL;
+			jaldi_print(JALDI_FATAL,
+				  "dma_mapping_error() on RX init\n");
+			error = -ENOMEM;
+			goto err;
+		}
+		bf->bf_dmacontext = bf->bf_buf_addr;
+	}
+	sc->rx.rxlink = NULL;
+
+err:
+	if (error)
+		jaldi_rx_cleanup(sc);
+
+	return error;
+}
+
+
+
 
 void jaldi_tx_cleanup(struct jaldi_softc *sc)
 {
@@ -152,6 +249,26 @@ void jaldi_tx_cleanup(struct jaldi_softc *sc)
 
 }
 
+void jaldi_rx_cleanup(struct jaldi_softc *sc)
+{
+	struct sk_buff *skb;
+	struct jaldi_buf *bf;
+
+	/* if we were doing edma it'd go here */
+
+	list_for_each_entry(bf, &sc->rx.rxbuf, list) {
+		skb = bf->bf_mpdu;
+		if (skb) {
+			dma_unmap_single(sc->dev, bf->bf_buf_addr,
+					sc->rx_bufsize,
+					DMA_FROM_DEVICE);
+			dev_kfree_skb(skb);
+		}
+	}
+
+	if (sc->rx.rxdma.dd_desc_len != 0)
+		jaldi_descdma_cleanup(sc, &sc->rx.rxdma, &sc->rx.rxbuf);
+}
 void jaldi_descdma_cleanup(struct jaldi_softc *sc, struct jaldi_descdma *dd,
 				struct list_head *head)
 {
@@ -163,6 +280,7 @@ void jaldi_descdma_cleanup(struct jaldi_softc *sc, struct jaldi_descdma *dd,
 	kfree(dd->dd_bufptr);
 	memset(dd, 0, sizeof(*dd));
 }
+
 /*  From ath9k:
  *  "This function will allocate both the DMA descriptor structure, and the
  *  buffers it contains.  These are used to contain the descriptors used
@@ -350,6 +468,7 @@ int jaldi_init_softc(u16 devid, struct jaldi_softc *sc, u16 subsysid, const stru
 	/* init tasklets and other locks here */
 
 	hw->bus_ops->read_cachesize(sc, &csz); 
+	sc->cachelsz = csz;
 
 	/* ath9k reads cache line size here... may be relevant */
 	ret = jaldi_hw_init(hw);
@@ -388,8 +507,8 @@ int jaldi_init_device(u16 devid, struct jaldi_softc *sc, u16 subsysid, const str
 	if (error) { goto error_tx; }
 
 	/* Setup RX DMA */
-//	error = jaldi_rx_init(sc, JALDI_NUM_RXBUF); // TODO
-//	if (error) { goto error_rx; }
+	error = jaldi_rx_init(sc, JALDI_NUM_RXBUF); // TODO
+	if (error) { goto error_rx; }
 
 	/* initialize workers here if needed */
 
