@@ -16,43 +16,32 @@ DISTDIR=dist
 CONFIGURATION_FILES=$(addprefix $(BUILDDIR)/,$(addsuffix .click,$(CONFIGURATIONS)))
 CONFIGURATION_DOT=$(addprefix $(BUILDDIR)/,$(addsuffix .dot,$(CONFIGURATIONS)))
 CONFIGURATION_GRAPH=$(addprefix $(DISTDIR)/,$(addsuffix .pdf,$(CONFIGURATIONS)))
-ARCHIVES=$(addprefix $(DISTDIR)/,$(addsuffix .clickpkg,$(CONFIGURATIONS)))
+PACKAGES=$(addprefix $(DISTDIR)/,$(addsuffix .clickpkg,$(CONFIGURATIONS)))
 JALDI_PACKAGE_BINARY=$(ELEMENTDIR)/jaldi.uo
+JALDI_ELEMENT_MAP=$(ELEMENTDIR)/elementmap-jaldi.xml
 
+# ========================================
 # Metarules
-.PHONY: all clean configurations pretty elements
+# ========================================
+
+.PHONY: all dist packages pretty configurations elements clean
 .SILENT:
 
-# Rules
+# ========================================
+# Targets
+# ========================================
+
 all: dist
 
-%.click: ../$(CONFIGDIR)/%.slick
-	gcc -E -x c $< -o $@
+dist: packages pretty
 
-%.dot: %.click
-	click-pretty --dot $< > $@
-
-%.pdf: %.dot
-	dot -Tpdf -o$@ $<
-
-%.clickpkg: ../$(BUILDDIR)/%.click configurations elements
-	cp $< $(BUILDDIR)/config
-	ar rcs $@ $(BUILDDIR)/config $(ELEMENTDIR)/jaldi.uo
-	click -q $@ || (rm -f $@ && false)
-
-configurations: $(CONFIGURATION_FILES)
+packages: $(PACKAGES)
 
 pretty: $(CONFIGURATION_DOT) $(CONFIGURATION_GRAPH)
 
-$(ELEMENTDIR)/Makefile:
-	cd $(ELEMENTDIR) && autoconf && ./configure $(ELEMENTS_CONFIGURATION)
+configurations: $(CONFIGURATION_FILES)
 
-$(JALDI_PACKAGE_BINARY): $(ELEMENTDIR)/Makefile
-	cd $(ELEMENTDIR) && make
-
-elements: $(JALDI_PACKAGE_BINARY)
-
-dist: $(ARCHIVES) pretty
+elements: $(JALDI_PACKAGE_BINARY) $(JALDI_ELEMENT_MAP)
 
 clean:
 	cd $(BUILDDIR); rm -f *
@@ -60,3 +49,30 @@ clean:
 	cd $(ELEMENTDIR) && make clean
 	cd $(ELEMENTDIR) && rm Makefile configure config.status config.log
 	cd $(ELEMENTDIR) && rm -rf autom4te.cache
+
+# ========================================
+# Internal targets
+# ========================================
+
+%.click: ../$(CONFIGDIR)/%.slick
+	gcc -E -x c $< -o $@
+
+%.dot: %.clickpkg
+	click-pretty --dot $< > $@
+
+%.pdf: %.dot
+	dot -Tpdf -o$@ $<
+
+%.clickpkg: ../$(BUILDDIR)/%.click configurations elements
+	cp $< $(BUILDDIR)/config
+	ar rcs $@ $(BUILDDIR)/config $(JALDI_PACKAGE_BINARY) $(JALDI_ELEMENT_MAP)
+	click -q $@ || (rm -f $@ && false)
+
+$(ELEMENTDIR)/Makefile:
+	cd $(ELEMENTDIR) && autoconf && ./configure $(ELEMENTS_CONFIGURATION)
+
+$(JALDI_PACKAGE_BINARY): $(ELEMENTDIR)/Makefile
+	cd $(ELEMENTDIR) && make
+
+$(JALDI_ELEMENT_MAP):
+	click-mkelemmap $(ELEMENTDIR)/*.hh > $@
