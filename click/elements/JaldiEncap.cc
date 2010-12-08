@@ -39,6 +39,8 @@ int JaldiEncap::configure(Vector<String>& conf, ErrorHandler* errh)
         type = DATA_FRAME;
     else if (name_of_type.equals("VOIP_FRAME", -1))
         type = VOIP_FRAME;
+    else if (name_of_type.equals("REQUEST_FRAME", -1))
+        type = REQUEST_FRAME;
     else if (name_of_type.equals("CONTENTION_SLOT", -1))
         type = CONTENTION_SLOT;
     else if (name_of_type.equals("VOIP_SLOT", -1))
@@ -49,6 +51,8 @@ int JaldiEncap::configure(Vector<String>& conf, ErrorHandler* errh)
         type = BITRATE_MESSAGE;
     else if (name_of_type.equals("ROUND_COMPLETE_MESSAGE", -1))
         type = ROUND_COMPLETE_MESSAGE;
+    else if (name_of_type.equals("DELAY_MESSAGE", -1))
+        type = DELAY_MESSAGE;
     else
     {
         errh->error("invalid Jaldi frame type: %s", name_of_type.c_str());
@@ -91,10 +95,10 @@ Packet* JaldiEncap::action(Packet* p)
 
     // Create header
     Frame* f = (Frame*) p1->data();
-    f->Initialize<DATA_FRAME>();
+    f->initialize();
     f->dest_id = dest_id;
     f->type = type;
-    f->length = p1->length() + Frame::header_size + Frame::footer_size;
+    f->length = Frame::empty_packet_size + p1->length();
     f->seq = seq++;
 
     // Kill intermediate packets that are now unnecessary

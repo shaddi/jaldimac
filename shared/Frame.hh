@@ -4,11 +4,20 @@ namespace jaldimac {
 
 // Constants
 const uint8_t BROADCAST_ID = 0;
+const uint8_t DRIVER_ID = 0;
 const uint8_t MASTER_ID = 1;
-const unsigned DATA_MTU = 1500;
-const unsigned VOIP_MTU = 300;
+const unsigned DATA_MTU__BYTES = 1500;
+const unsigned VOIP_MTU__BYTES = 300;
+const unsigned STATIONS_PER_VOIP_SLOT = 4;
 const uint8_t CURRENT_VERSION = 1;
 const uint8_t PREAMBLE[4] = {'J', 'L', 'D', CURRENT_VERSION};
+
+// Bitrate constants: (this is all temporary, for testing on Ethernet)
+const unsigned MEGABIT__BYTES = 1000000 / 8;
+const unsigned ETH_10_MEGABIT__BYTES_PER_US = (MEGABIT__BYTES * 10) / 1000000;
+const unsigned ETH_100_MEGABIT__BYTES_PER_US = (MEGABIT__BYTES * 100) / 1000000;
+const unsigned ETH_1000_MEGABIT__BYTES_PER_US = (MEGABIT__BYTES * 1000) / 1000000;
+const unsigned BITRATE__BYTES_PER_US = ETH_100_MEGABIT__BYTES_PER_US;
 
 // Frame types:
 // There are three general classes of frames. "Content" frames are sent over
@@ -20,11 +29,13 @@ enum FrameType
 {
     DATA_FRAME = 0,         // Content
     VOIP_FRAME,             // Content
+    REQUEST_FRAME,          // Content
     CONTENTION_SLOT,        // Global Control
     VOIP_SLOT,              // Global Control
     TRANSMIT_SLOT,          // Global Control
     BITRATE_MESSAGE,        // Local Control
-    ROUND_COMPLETE_MESSAGE  // Local Control
+    ROUND_COMPLETE_MESSAGE, // Local Control
+    DELAY_MESSAGE           // Local Control
 };
 
 struct Frame
@@ -41,22 +52,12 @@ struct Frame
     static const size_t header_size = sizeof(preamble) + sizeof(dest_id) + sizeof(type)
                                     + sizeof(length) + sizeof(seq);
     static const size_t footer_size = sizeof(uint32_t) /* timestamp */;
+    static const size_t empty_packet_size = header_size + footer_size;
 
     // Member functions
-    template<uint8_t Type>
-    void Initialize()
-    {
-        // Set up preamble
-        memcpy(preamble, PREAMBLE, sizeof(PREAMBLE));
+    inline void initialize();
+    inline size_t payload_length() const { return length - empty_packet_size; }
 
-        // Set up defaults for other values
-        dest_id = 0;
-        type = Type;
-        length = Frame::header_size + Frame::footer_size;
-        seq = 0;
-    }
-
-    size_t PayloadLength() const { return length - (header_size + footer_size); }
 } __attribute__((__packed__));
 
 // Cast the payload to one of the following structs as appropriate for the
@@ -67,6 +68,12 @@ struct Frame
 // of an encapsulated IP packet. ROUND_COMPLETE_MESSAGE does not have a struct
 // because it requires no payload.
 
+struct RequestFramePayload
+{
+    uint32_t bulk_request_bytes;
+    uint32_t voip_request_bytes;
+} __attribute__((__packed__));
+
 struct ContentionSlotPayload
 {
     uint32_t duration_us;
@@ -75,7 +82,7 @@ struct ContentionSlotPayload
 struct VoIPSlotPayload
 {
     uint32_t duration_us;
-    uint8_t dest_ids[4];
+    uint8_t stations[STATIONS_PER_VOIP_SLOT];
 } __attribute__((__packed__));
 
 struct TransmitSlotPayload
@@ -87,5 +94,22 @@ struct BitrateMessagePayload
 {
     /* REPLACE WITH BITRATE ENUM TYPE */ uint32_t bitrate;
 } __attribute__((__packed__));
+
+struct DelayMessagePayload
+{
+    uint32_t duration_us;
+} __attribute__((__packed__));
+
+inline void Frame::initialize()
+{
+    // Set up preamble
+    memcpy(preamble, PREAMBLE, sizeof(PREAMBLE));
+
+    // Set up defaults for other values
+    dest_id = 0;
+    type = DATA_FRAME;
+    length = empty_packet_size;
+    seq = 0;
+}
 
 }

@@ -16,8 +16,9 @@ encapsulates packets in Jaldi header
 
 Encapsulates each packet in the Jaldi header specified by its arguments.
 
-TYPE may be one of: DATA_FRAME, VOIP_FRAME, CONTENTION_SLOT, VOIP_SLOT,
-TRANSMIT_SLOT, ROUND_COMPLETE_MESSAGE, or BITRATE_MESSAGE.
+TYPE may be one of: DATA_FRAME, VOIP_FRAME, REQUEST_FRAME, CONTENTION_SLOT,
+VOIP_SLOT, TRANSMIT_SLOT, ROUND_COMPLETE_MESSAGE, DELAY_MESSAGE, or
+BITRATE_MESSAGE.
 
 DEST is the station identifier of the station the Jaldi frame is intended for.
 
