@@ -6,7 +6,7 @@ CLICK_DECLS
 /*
 =c
 
-JaldiGate
+JaldiGate(ID)
 
 =s jaldi
 
@@ -19,6 +19,8 @@ inputs to its output when requested by the master. It's also responsible for
 sending requests to the master when more data is queued than can be sent in the
 current round. JaldiGate is, in some sense, the equivalent of JaldiScheduler
 for stations.
+
+ID is the station ID of this station.
 
 JaldiGate has 3 inputs: input 0 (push) is for control traffic, input 1 (pull)
 is for bulk traffic, and input 2 (pull) is for voip traffic. It has one push
@@ -42,6 +44,7 @@ class JaldiGate : public Element { public:
     const char* processing() const  { return "hl/h"; }
     const char* flow_code() const   { return COMPLETE_FLOW; }
 
+    int configure(Vector<String>&, ErrorHandler*);
     int initialize(ErrorHandler*);
     bool can_live_reconfigure() const   { return true; }
     void take_state(Element*, ErrorHandler*);

@@ -60,16 +60,8 @@ elementclass JaldiFairness { input[$BULK] -> PullToPush -> [$BULK]output
 elementclass JaldiScheduler { input[$BULK] -> PullToPush -> output
 			      input[$CONTROL] -> PullToPush -> Discard
 			      input[$VOIP] -> PullToPush -> Discard }
-elementclass JaldiGate { rr :: RoundRobinSched
-			 input[$BULK] -> [0]rr
-			 input[$VOIP] -> [1]rr
-			 input[$CONTROL] -> Discard
-			 rr -> output }
 
 // TEMP --- REMOVE THIS --- TEMP
-
-// Queues
-elementclass JaldiQueue { input -> Queue(2000) -> output }
 
 // Encapsulation / decapsulation
 elementclass EthernetToIP

@@ -2,32 +2,43 @@
  * JaldiGate.{cc,hh} -- sends packets to master at appropriate times based upon control packets
  */
 
-// TODO: Remove unneeded comments about ports
-// TODO: Add configuration parameter for station id - ABSOLUTELY NEEDED!
-// TODO: Move make_jaldi_frame into separate header
 // TODO: Make voip protocol work as intended - i.e., flow oriented rather than packet oriented
 
 #include <click/config.h>
-#include "JaldiGate.hh"
 #include <click/confparse.hh>
 #include <click/error.hh>
 #include <click/glue.hh>
 #include <click/router.hh>
 #include <click/routervisitor.hh>
+
+#include "JaldiClick.hh"
 #include "JaldiQueue.hh"
 #include "Frame.hh"
+#include "JaldiGate.hh"
 
 using namespace jaldimac;
 
 CLICK_DECLS
 
-JaldiGate::JaldiGate() : bulk_queue(NULL), voip_queue(NULL), outstanding_bulk_requests(false),
-                         bulk_requested(0), voip_requested(0), station_id(0)
+JaldiGate::JaldiGate() : bulk_queue(NULL), voip_queue(NULL),
+			 outstanding_bulk_requests(false), bulk_requested(0),
+			 voip_requested(0), station_id(0)
 {
 }
 
 JaldiGate::~JaldiGate()
 {
+}
+
+int JaldiGate::configure(Vector<String>& conf, ErrorHandler* errh)
+{
+    // Parse configuration parameters
+    if (cp_va_kparse(conf, this, errh,
+             "ID", cpkP+cpkM, cpByte, &station_id,
+             cpEnd) < 0)
+        return -1;
+    else
+        return 0;
 }
 
 int JaldiGate::initialize(ErrorHandler* errh)
@@ -57,30 +68,17 @@ int JaldiGate::initialize(ErrorHandler* errh)
     return 0;
 }
 
-void JaldiGate::take_state(Element* /*old*/, ErrorHandler* /*errh*/)
+void JaldiGate::take_state(Element* old, ErrorHandler*)
 {
-/*
-    JaldiEncap* oldJE = (JaldiEncap*) old->cast("JaldiEncap");
+    JaldiGate* oldJG = (JaldiGate*) old->cast("JaldiGate");
 
-    if (oldJE)
-        seq = oldJE->seq;
-*/
-}
-
-// Inputs: 0 (push) = control, 1 (pull) = bulk, 2 (pull) = voip
-// Outputs: 0 (push) = everything
-
-template<uint8_t FrameType, uint8_t DestId, typename PayloadType>
-WritablePacket* make_jaldi_frame(PayloadType*& payload_out)
-{
-    WritablePacket* wp = Packet::make(Frame::empty_packet_size + sizeof(PayloadType));
-    Frame* f = (Frame*) wp->data();
-    f->initialize();
-    f->type = FrameType;
-    f->dest_id = DestId;
-    f->length = Frame::empty_packet_size + sizeof(PayloadType);
-    payload_out = (PayloadType*) f->payload;
-    return wp;
+    if (oldJG)
+    {
+        outstanding_bulk_requests = oldJG->outstanding_bulk_requests;
+        bulk_requested = oldJG->bulk_requested;
+        voip_requested = oldJG->voip_requested;
+        station_id = oldJG->station_id;
+    }
 }
 
 void JaldiGate::push(int, Packet* p)
@@ -88,6 +86,13 @@ void JaldiGate::push(int, Packet* p)
     // We've received some kind of control traffic; take action based on the
     // specific type and parameters.
     const Frame* f = (const Frame*) p->data();
+
+    if (! (f->dest_id == BROADCAST_ID || f->dest_id == station_id))
+    {
+        // Not for us! Dump it out the optional output port
+        checked_output_push(out_port_bad, p);
+        return;
+    }
 
     switch (f->type)
     {
@@ -110,7 +115,7 @@ void JaldiGate::push(int, Packet* p)
                 // Update state
                 bulk_requested = rfp->bulk_request_bytes;
                 voip_requested += rfp->voip_request_bytes;
-		outstanding_bulk_requests = true;
+                outstanding_bulk_requests = true;
 
                 // If possible, create a delay message with a random delay within the contention slot
                 const ContentionSlotPayload* payload = (const ContentionSlotPayload*) f->payload;
@@ -191,8 +196,8 @@ void JaldiGate::push(int, Packet* p)
                 output(out_port).push(rp);
 
                 // Update state
-		if (bulk_queued > bulk_requested)
-			outstanding_bulk_requests = true;
+                if (bulk_queued > bulk_requested)
+                    outstanding_bulk_requests = true;
 
                 bulk_requested = bulk_queued;
                 voip_requested = voip_queued;

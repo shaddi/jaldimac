@@ -39,7 +39,7 @@ ipToEth :: IPToEthernet
 jToIP :: JaldiToIP
 
 // Gate
-gate :: JaldiGate
+gate :: JaldiGate($STATION_ID)
 
 // ======================================================
 // Component Graph
@@ -70,4 +70,4 @@ ipClassifier[$VOIP] -> IPToJaldi(VOIP_FRAME, 0) -> JaldiQueue -> [$VOIP]gate
 
 // Outgoing traffic
 ipToEth -> downstreamSink
-gate -> PullToPush -> upstreamSink
+gate -> upstreamSink
