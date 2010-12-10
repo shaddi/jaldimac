@@ -6,7 +6,7 @@ CLICK_DECLS
 /*
 =c
 
-JaldiEncap(TYPE, DEST)
+JaldiEncap(TYPE, SRC, DEST)
 
 =s jaldi
 
@@ -19,6 +19,8 @@ Encapsulates each packet in the Jaldi header specified by its arguments.
 TYPE may be one of: DATA_FRAME, VOIP_FRAME, REQUEST_FRAME, CONTENTION_SLOT,
 VOIP_SLOT, TRANSMIT_SLOT, ROUND_COMPLETE_MESSAGE, DELAY_MESSAGE, or
 BITRATE_MESSAGE.
+
+SRC is the station identifier of the sending station.
 
 DEST is the station identifier of the station the Jaldi frame is intended for.
 
@@ -59,7 +61,11 @@ class JaldiEncap : public Element { public:
     Packet* pull(int);
 
   private:
+    static const int in_port = 0;
+    static const int out_port = 0;
+    static const int out_port_bad = 1;
 
+    uint8_t src_id;
     uint8_t dest_id;
     uint8_t type;
     uint32_t seq;

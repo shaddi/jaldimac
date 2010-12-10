@@ -46,8 +46,8 @@ elements: $(JALDI_PACKAGE_BINARY) $(JALDI_ELEMENT_MAP)
 clean:
 	cd $(BUILDDIR); rm -f *
 	cd $(DISTDIR); rm -f *
-	cd $(ELEMENTDIR) && make clean
-	cd $(ELEMENTDIR) && rm Makefile configure config.status config.log
+	cd $(ELEMENTDIR) && (make clean 2> /dev/null || true)
+	cd $(ELEMENTDIR) && rm -f Makefile configure config.status config.log
 	cd $(ELEMENTDIR) && rm -rf autom4te.cache
 
 # ========================================
@@ -66,7 +66,7 @@ clean:
 %.clickpkg: ../$(BUILDDIR)/%.click configurations elements
 	cp $< $(BUILDDIR)/config
 	ar rcs $@ $(BUILDDIR)/config $(JALDI_PACKAGE_BINARY) $(JALDI_ELEMENT_MAP)
-	click -q $@ || (rm -f $@ && false)
+	click -q $@ || (rm -f $@ && rm -f $< && false)
 
 $(ELEMENTDIR)/Makefile:
 	cd $(ELEMENTDIR) && autoconf && ./configure $(ELEMENTS_CONFIGURATION)

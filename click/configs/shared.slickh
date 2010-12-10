@@ -28,6 +28,18 @@ require(package jaldi)
 #define $BULK 1
 #define $VOIP 2
 
+#define $VOIP_IN_1 2
+#define $VOIP_IN_2 3
+#define $VOIP_IN_3 4
+#define $VOIP_IN_4 5
+#define $VOIP_IN_OVERFLOW 6
+
+#define $VOIP_OUT_1 0
+#define $VOIP_OUT_2 1
+#define $VOIP_OUT_3 2
+#define $VOIP_OUT_4 3
+#define $VOIP_OUT_OVERFLOW 4
+
 #define $DATA 1
 
 #define $OUT 0
@@ -89,8 +101,8 @@ elementclass IPToEthernet
 
 elementclass IPToJaldi
 {
-	$type, $dest |
-	input -> JaldiEncap($type, $dest) -> output
+	$type, $src, $dest |
+	input -> JaldiEncap($type, $src, $dest) -> output
 }
 
 // Classifiers

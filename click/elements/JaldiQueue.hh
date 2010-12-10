@@ -1,6 +1,5 @@
-// -*- c-basic-offset: 4 -*-
-#ifndef JALDIQUEUE_HH
-#define JALDIQUEUE_HH
+#ifndef CLICK_JALDIQUEUE_HH
+#define CLICK_JALDIQUEUE_HH
 #include <click/element.hh>
 #include <click/standard/storage.hh>
 CLICK_DECLS

@@ -2,8 +2,6 @@
  * JaldiGate.{cc,hh} -- sends packets to master at appropriate times based upon control packets
  */
 
-// TODO: Make voip protocol work as intended - i.e., flow oriented rather than packet oriented
-
 #include <click/config.h>
 #include <click/confparse.hh>
 #include <click/error.hh>
@@ -13,16 +11,15 @@
 
 #include "JaldiClick.hh"
 #include "JaldiQueue.hh"
-#include "Frame.hh"
 #include "JaldiGate.hh"
 
 using namespace jaldimac;
 
 CLICK_DECLS
 
-JaldiGate::JaldiGate() : bulk_queue(NULL), voip_queue(NULL),
-			 outstanding_bulk_requests(false), bulk_requested(0),
-			 voip_requested(0), station_id(0)
+JaldiGate::JaldiGate() : bulk_queue(NULL), voip_overflow_queue(NULL),
+                         outstanding_requests(false), bulk_requested_bytes(0),
+                         voip_requested_flows(0), station_id(0)
 {
 }
 
@@ -37,8 +34,13 @@ int JaldiGate::configure(Vector<String>& conf, ErrorHandler* errh)
              "ID", cpkP+cpkM, cpByte, &station_id,
              cpEnd) < 0)
         return -1;
-    else
-        return 0;
+
+    // Check that we have the right number of output ports
+    if (ninputs() != FLOWS_PER_VOIP_SLOT + 3)
+        return errh->error("wrong number of input ports; need %<%d%>", FLOWS_PER_VOIP_SLOT + 3);
+
+    // Looks good!
+    return 0;
 }
 
 int JaldiGate::initialize(ErrorHandler* errh)
@@ -50,19 +52,32 @@ int JaldiGate::initialize(ErrorHandler* errh)
     ElementCastTracker filter(router(), "JaldiQueue");
 
     if (router()->visit_upstream(this, in_port_bulk, &filter) < 0 || filter.size() == 0)
-        return errh->error("couldn't find an upstream bulk JaldiQueue using flow-based router context");
+        return errh->error("couldn't find an upstream bulk JaldiQueue on input port %<%d%> using flow-based router context", in_port_bulk);
 
     if (! (bulk_queue = (JaldiQueue*) filter[0]->cast("JaldiQueue")))
-        return errh->error("bulk queue %<%s%> is not a valid JaldiQueue (cast failed)", filter[0]->name().c_str());
+        return errh->error("bulk queue %<%s%> on input port %<%d%> is not a valid JaldiQueue (cast failed)", filter[0]->name().c_str(), in_port_bulk);
 
-    // Find the nearest upstream VoIP queue
+    // Find the nearest upstream VoIP queues
+    for (unsigned voip_port = 0 ; voip_port < FLOWS_PER_VOIP_SLOT ; ++voip_port)
+    {
+        filter.clear();
+
+        if (router()->visit_upstream(this, in_port_voip_first + voip_port, &filter) < 0 || filter.size() == 0)
+            return errh->error("couldn't find an upstream VoIP JaldiQueue on input port %<%d%> using flow-based router context", in_port_voip_first + voip_port);
+
+        if (! (voip_queues[voip_port] = (JaldiQueue*) filter[0]->cast("JaldiQueue")))
+            return errh->error("VoIP queue %<%s%> on input port %<%d%> is not a valid JaldiQueue (cast failed)", filter[0]->name().c_str(), in_port_voip_first + voip_port);
+    }
+
+    // Find the nearest upstream VoIP overflow queue
     filter.clear();
 
-    if (router()->visit_upstream(this, in_port_voip, &filter) < 0 || filter.size() == 0)
-        return errh->error("couldn't find an upstream VoIP JaldiQueue using flow-based router context");
+    if (router()->visit_upstream(this, in_port_voip_overflow, &filter) < 0 || filter.size() == 0)
+        return errh->error("couldn't find an upstream VoIP overflow JaldiQueue on input port %<%d%> using flow-based router context", in_port_voip_overflow);
 
-    if (! (voip_queue = (JaldiQueue*) filter[0]->cast("JaldiQueue")))
-        return errh->error("VoIP queue %<%s%> is not a valid JaldiQueue (cast failed)", filter[0]->name().c_str());
+    if (! (voip_overflow_queue = (JaldiQueue*) filter[0]->cast("JaldiQueue")))
+        return errh->error("VoIP queue %<%s%> on input port %<%d%> is not a valid JaldiQueue (cast failed)", filter[0]->name().c_str(), in_port_voip_overflow);
+
 
     // Success!
     return 0;
@@ -74,11 +89,43 @@ void JaldiGate::take_state(Element* old, ErrorHandler*)
 
     if (oldJG)
     {
-        outstanding_bulk_requests = oldJG->outstanding_bulk_requests;
-        bulk_requested = oldJG->bulk_requested;
-        voip_requested = oldJG->voip_requested;
+        outstanding_requests = oldJG->outstanding_requests;
+        bulk_requested_bytes = oldJG->bulk_requested_bytes;
+        voip_requested_flows = oldJG->voip_requested_flows;
         station_id = oldJG->station_id;
     }
+}
+
+WritablePacket* JaldiGate::make_request_frame()
+{
+    // Verify that a request is needed
+    unsigned bulk_new_bytes = bulk_queue->total_length() - bulk_requested_bytes;
+    unsigned voip_new_flows = 0;
+
+    for (int voip_queue = 0 ; voip_queue < int(FLOWS_PER_VOIP_SLOT) ; ++voip_queue)
+    {
+        if (! voip_queues[voip_queue]->empty())
+            voip_new_flows += 1;
+    }
+
+    voip_new_flows -= voip_requested_flows;
+
+    if (bulk_new_bytes == 0 && voip_new_flows == 0)
+        return NULL;        // Nothing to request!
+
+    // Construct a request frame
+    RequestFramePayload* rfp;
+    WritablePacket* rp = make_jaldi_frame<REQUEST_FRAME, MASTER_ID>(station_id, rfp);
+    rfp->bulk_request_bytes = bulk_new_bytes;
+    rfp->voip_request_flows = voip_new_flows;
+
+    // Update state
+    outstanding_requests = true;
+    bulk_requested_bytes += bulk_new_bytes;
+    voip_requested_flows += voip_new_flows;
+
+    // Return constructed packet
+    return rp;
 }
 
 void JaldiGate::push(int, Packet* p)
@@ -98,24 +145,17 @@ void JaldiGate::push(int, Packet* p)
     {
         case CONTENTION_SLOT:
         {
+            WritablePacket* rp;
+
+            // Reset requested VoIP flows since they don't carry over between rounds
+            voip_requested_flows = 0;
+
             // Send requests if we need to and we won't get a chance later
-
-            if (outstanding_bulk_requests)
-                outstanding_bulk_requests = false;  // We'll make the requests when it's our turn to send
-            else if (! (bulk_queue->empty() && voip_queue->empty()))
+            if (outstanding_requests)
+                outstanding_requests = false;  // We'll get another chance
+            else if ((rp = make_request_frame()) != NULL)
             {
-                // Construct a request frame
-                RequestFramePayload* rfp;
-                WritablePacket* rp = make_jaldi_frame<REQUEST_FRAME, MASTER_ID>(rfp);
-
-                // Configure the request according to the queue sizes
-                rfp->bulk_request_bytes = bulk_queue->total_length();
-                rfp->voip_request_bytes = voip_queue->total_length() - voip_requested;
-
-                // Update state
-                bulk_requested = rfp->bulk_request_bytes;
-                voip_requested += rfp->voip_request_bytes;
-                outstanding_bulk_requests = true;
+                // We need to send a request!
 
                 // If possible, create a delay message with a random delay within the contention slot
                 const ContentionSlotPayload* payload = (const ContentionSlotPayload*) f->payload;
@@ -125,14 +165,13 @@ void JaldiGate::push(int, Packet* p)
                 {
                     // Construct and send a delay message frame
                     DelayMessagePayload* dmp;
-                    WritablePacket* dp = make_jaldi_frame<DELAY_MESSAGE, DRIVER_ID>(dmp);
+                    WritablePacket* dp = make_jaldi_frame<DELAY_MESSAGE, DRIVER_ID>(station_id, dmp);
                     dmp->duration_us = rand() % (payload->duration_us - requested_duration_us + 1);
                     output(out_port).push(dp);
                 }
 
-                // Send it
+                // Send the request
                 output(out_port).push(rp);
-
             }
 
             p->kill();
@@ -142,24 +181,49 @@ void JaldiGate::push(int, Packet* p)
 
         case VOIP_SLOT:
         {
+            WritablePacket* rp;
+
             // Send a VoIP packet if the master has given us a chance to do so
 
             const VoIPSlotPayload* payload = (const VoIPSlotPayload*) f->payload;
 
-            for (unsigned i = 0 ; i < STATIONS_PER_VOIP_SLOT ; ++i)
+            bool already_requested = false;
+            int cur_voip_queue = in_port_voip_first;
+            for (unsigned i = 0 ; i < FLOWS_PER_VOIP_SLOT ; ++i)
             {
                 if (payload->stations[i] == station_id)
                 {
-                    Packet* vp = input(in_port_voip).pull();
-                    voip_requested -= vp->length();
-                    output(out_port).push(vp);                      // Send one of our VoIP packets
+                    if (! already_requested && (rp = make_request_frame()) != NULL)
+                    {
+                        // Send a request frame
+                        output(out_port).push(rp);
+                        already_requested = true;
+                    }
+
+                    // Send one of our VoIP packets
+                    while (cur_voip_queue < in_port_voip_overflow)
+                    {
+                        Packet* vp = input(cur_voip_queue).pull();
+
+                        if (vp)
+                        {
+                            output(out_port).push(vp);
+                            ++cur_voip_queue;
+                            break;
+                        }
+                        else
+                            ++cur_voip_queue;
+                    }
                 }
                 else
                 {
                     // Construct a delay message frame for the driver
                     DelayMessagePayload* dmp;
-                    WritablePacket* dp = make_jaldi_frame<DELAY_MESSAGE, DRIVER_ID>(dmp);
-                    dmp->duration_us = VOIP_MTU__BYTES / BITRATE__BYTES_PER_US + 1;
+                    WritablePacket* dp = make_jaldi_frame<DELAY_MESSAGE, DRIVER_ID>(station_id, dmp);
+                    dmp->duration_us = (Frame::empty_packet_size
+                                        + sizeof(RequestFramePayload)
+                                        + 2 * VOIP_MTU__BYTES)
+                                       / BITRATE__BYTES_PER_US + 1;
 
                     // Send it
                     output(out_port).push(dp);
@@ -173,44 +237,46 @@ void JaldiGate::push(int, Packet* p)
 
         case TRANSMIT_SLOT:
         {
+            WritablePacket* rp;
+            uint32_t next_frame_duration_us;
+
             // If we have requests or bulk data, send them
-            // (In the future we potentially need to send VOIP stuff here too, but can wait to implement that)
             
             const TransmitSlotPayload* payload = (const TransmitSlotPayload*) f->payload;
             uint32_t duration_us = payload->duration_us;
 
-            unsigned bulk_queued = bulk_queue->total_length();
-            unsigned voip_queued = voip_queue->total_length();
-
-            if (bulk_queued > bulk_requested || voip_queued > voip_requested)
+            if ((rp = make_request_frame()) != NULL)
             {
-                // Construct a request frame
-                RequestFramePayload* rfp;
-                WritablePacket* rp = make_jaldi_frame<REQUEST_FRAME, MASTER_ID>(rfp);
-
-                // Configure the request according to the queue sizes
-                rfp->bulk_request_bytes = bulk_queued - bulk_requested;
-                rfp->voip_request_bytes = voip_queued - voip_requested;
-
-                // Send it
+                // Send a request frame
                 output(out_port).push(rp);
-
-                // Update state
-                if (bulk_queued > bulk_requested)
-                    outstanding_bulk_requests = true;
-
-                bulk_requested = bulk_queued;
-                voip_requested = voip_queued;
                 duration_us -= rp->length() / BITRATE__BYTES_PER_US + 1;
             }
 
+            // Send overflow VoIP frames
+            while ((next_frame_duration_us = voip_overflow_queue->head_length() / BITRATE__BYTES_PER_US + 1) > duration_us)
+            {
+                // Pull the next frame, update stats, and send it
+                Packet* vp = input(in_port_voip_overflow).pull();
+
+                if (vp == NULL)
+                    break;
+
+                output(out_port).push(vp);
+
+                // Update remaining duration
+                duration_us -= next_frame_duration_us;
+            }
+
             // Send bulk frames
-            uint32_t next_frame_duration_us;
             while ((next_frame_duration_us = bulk_queue->head_length() / BITRATE__BYTES_PER_US + 1) > duration_us)
             {
-                // Pull it, update stats, and send it
+                // Pull the next frame, update stats, and send it
                 Packet* bp = input(in_port_bulk).pull();
-                bulk_requested -= bp->length();
+
+                if (bp == NULL)
+                    break;
+
+                bulk_requested_bytes -= bp->length();
                 output(out_port).push(bp);
 
                 // Update remaining duration

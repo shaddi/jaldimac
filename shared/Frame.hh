@@ -1,4 +1,5 @@
-#pragma once
+#ifndef FRAME_HH
+#define FRAME_HH
 
 namespace jaldimac {
 
@@ -6,9 +7,10 @@ namespace jaldimac {
 const uint8_t BROADCAST_ID = 0;
 const uint8_t DRIVER_ID = 0;
 const uint8_t MASTER_ID = 1;
+const uint8_t FIRST_STATION_ID = 2;
 const unsigned DATA_MTU__BYTES = 1500;
 const unsigned VOIP_MTU__BYTES = 300;
-const unsigned STATIONS_PER_VOIP_SLOT = 4;
+const unsigned FLOWS_PER_VOIP_SLOT = 4;
 const uint8_t CURRENT_VERSION = 1;
 const uint8_t PREAMBLE[4] = {'J', 'L', 'D', CURRENT_VERSION};
 
@@ -18,6 +20,9 @@ const unsigned ETH_10_MEGABIT__BYTES_PER_US = (MEGABIT__BYTES * 10) / 1000000;
 const unsigned ETH_100_MEGABIT__BYTES_PER_US = (MEGABIT__BYTES * 100) / 1000000;
 const unsigned ETH_1000_MEGABIT__BYTES_PER_US = (MEGABIT__BYTES * 1000) / 1000000;
 const unsigned BITRATE__BYTES_PER_US = ETH_100_MEGABIT__BYTES_PER_US;
+
+// Station-related constants: (this is all temporary, for testing)
+const unsigned STATION_COUNT = 4;
 
 // Frame types:
 // There are three general classes of frames. "Content" frames are sent over
@@ -42,9 +47,11 @@ struct Frame
 {
     // Fields
     uint8_t preamble[4];
+    uint8_t src_id;
     uint8_t dest_id;
     uint8_t type;
-    uint16_t length;
+    uint8_t tag;            // Currently unused
+    uint32_t length;
     uint32_t seq;
     uint8_t payload[0];     // Actual size determined by length
 
@@ -71,7 +78,7 @@ struct Frame
 struct RequestFramePayload
 {
     uint32_t bulk_request_bytes;
-    uint32_t voip_request_bytes;
+    uint8_t voip_request_flows;
 } __attribute__((__packed__));
 
 struct ContentionSlotPayload
@@ -82,12 +89,13 @@ struct ContentionSlotPayload
 struct VoIPSlotPayload
 {
     uint32_t duration_us;
-    uint8_t stations[STATIONS_PER_VOIP_SLOT];
+    uint8_t stations[FLOWS_PER_VOIP_SLOT];
 } __attribute__((__packed__));
 
 struct TransmitSlotPayload
 {
     uint32_t duration_us;
+    uint8_t voip_granted_flows;
 } __attribute__((__packed__));
 
 struct BitrateMessagePayload
@@ -106,10 +114,14 @@ inline void Frame::initialize()
     memcpy(preamble, PREAMBLE, sizeof(PREAMBLE));
 
     // Set up defaults for other values
+    src_id = 0;
     dest_id = 0;
     type = DATA_FRAME;
+    tag = 0;
     length = empty_packet_size;
     seq = 0;
 }
 
 }
+
+#endif

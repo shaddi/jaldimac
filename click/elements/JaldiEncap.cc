@@ -30,6 +30,7 @@ int JaldiEncap::configure(Vector<String>& conf, ErrorHandler* errh)
     // Parse configuration parameters
     if (cp_va_kparse(conf, this, errh,
              "TYPE", cpkP+cpkM, cpString, &name_of_type,
+             "SRC", cpkP+cpkM, cpByte, &src_id,
              "DEST", cpkP+cpkM, cpByte, &dest_id,
              cpEnd) < 0)
         return -1;
@@ -79,13 +80,9 @@ Packet* JaldiEncap::action(Packet* p)
     uint32_t length = p->length();
 
     // If the packet's too long, kill it
-    if (length > UINT16_MAX)
+    if (length > UINT32_MAX)
     {
-        if (port_active(true, 1))
-            output(1).push(p);
-        else
-            p->kill();
-
+        checked_output_push(out_port_bad, p);
         return NULL;
     }
 
@@ -97,6 +94,7 @@ Packet* JaldiEncap::action(Packet* p)
     Frame* f = (Frame*) p1->data();
     f->initialize();
     f->dest_id = dest_id;
+    f->src_id = src_id;
     f->type = type;
     f->length = Frame::empty_packet_size + p1->length();
     f->seq = seq++;
@@ -112,12 +110,12 @@ Packet* JaldiEncap::action(Packet* p)
 void JaldiEncap::push(int, Packet* p)
 {
     if (Packet* q = action(p))
-        output(0).push(q);
+        output(out_port).push(q);
 }
 
 Packet* JaldiEncap::pull(int)
 {
-    if (Packet *p = input(0).pull())
+    if (Packet *p = input(in_port).pull())
         return action(p);
     else
         return NULL;

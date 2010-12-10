@@ -35,13 +35,6 @@ JaldiEncap */
 
 class JaldiDecap : public Element { public:
 
-    enum PacketType
-    {
-        CONTROL = 0,
-        DATA,
-        BAD
-    };
-
     JaldiDecap();
     ~JaldiDecap();
 
@@ -53,10 +46,13 @@ class JaldiDecap : public Element { public:
     int configure(Vector<String>&, ErrorHandler*);
     bool can_live_reconfigure() const   { return true; }
 
-    PacketType action(Packet*);
     void push(int, Packet*);
 
     private:
+      static const int in_port = 0;
+      static const int out_port_control = 0;
+      static const int out_port_data = 1;
+      static const int out_port_bad = 2;
 
       bool should_filter_by_dest;
       uint8_t dest_id;

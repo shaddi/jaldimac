@@ -1,6 +1,7 @@
 #ifndef CLICK_JALDIGATE_HH
 #define CLICK_JALDIGATE_HH
 #include <click/element.hh>
+#include "Frame.hh"
 CLICK_DECLS
 
 /*
@@ -22,11 +23,15 @@ for stations.
 
 ID is the station ID of this station.
 
-JaldiGate has 3 inputs: input 0 (push) is for control traffic, input 1 (pull)
-is for bulk traffic, and input 2 (pull) is for voip traffic. It has one push
-output (though a second push output may be connected to receive erroneous
-packets). Everything arriving on the inputs should be encapsulated in Jaldi
-frames.
+JaldiGate has at least 3 inputs. Input 0 (push) is for control traffic and
+input 1 (pull) is for bulk traffic. Inputs 2 and above (pull) are for VoIP
+traffic; there should be as many VoIP inputs as there are flows that may fit in
+a VoIP slot, plus one for any excess VoIP flows that will have to be sent with
+bulk data. Everything arriving on the inputs should be encapsulated in Jaldi
+frames, and all pull inputs should be connected to JaldiQueues.
+
+There is one push output (though a second push output may be connected to
+receive erroneous packets). 
 
 =a
 
@@ -40,7 +45,7 @@ class JaldiGate : public Element { public:
     ~JaldiGate();
 
     const char* class_name() const  { return "JaldiGate"; }
-    const char* port_count() const  { return "3/1-2"; }
+    const char* port_count() const  { return "3-/1-2"; }
     const char* processing() const  { return "hl/h"; }
     const char* flow_code() const   { return COMPLETE_FLOW; }
 
@@ -49,20 +54,24 @@ class JaldiGate : public Element { public:
     bool can_live_reconfigure() const   { return true; }
     void take_state(Element*, ErrorHandler*);
 
+    WritablePacket* make_request_frame();
+
     void push(int, Packet*);
 
   private:
     static const int in_port_control = 0;
     static const int in_port_bulk = 1;
-    static const int in_port_voip = 2;
+    static const int in_port_voip_first = 2;
+    static const int in_port_voip_overflow = in_port_voip_first + jaldimac::FLOWS_PER_VOIP_SLOT;
     static const int out_port = 0;
     static const int out_port_bad = 1;
 
     JaldiQueue* bulk_queue;
-    JaldiQueue* voip_queue;
-    bool outstanding_bulk_requests;
-    uint32_t bulk_requested;
-    uint32_t voip_requested;
+    JaldiQueue* voip_queues[jaldimac::FLOWS_PER_VOIP_SLOT];
+    JaldiQueue* voip_overflow_queue;
+    bool outstanding_requests;
+    uint32_t bulk_requested_bytes;
+    uint8_t voip_requested_flows;
     uint8_t station_id;
 };
 

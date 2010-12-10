@@ -32,14 +32,14 @@ int JaldiDecap::configure(Vector<String>& conf, ErrorHandler* errh)
         return 0;
 }
 
-JaldiDecap::PacketType JaldiDecap::action(Packet* p)
+void JaldiDecap::push(int, Packet* p)
 {
     // Treat the packet as a Frame
     const Frame* f = (const Frame*) p->data();
 
     // Filter by dest_id if requested
     if (should_filter_by_dest && !(f->dest_id == BROADCAST_ID || f->dest_id == dest_id))
-        return BAD;
+        checked_output_push(out_port_bad, p);
 
     // Classify the packet (Control, Data, or Bad)?
     switch (f->type)
@@ -49,35 +49,21 @@ JaldiDecap::PacketType JaldiDecap::action(Packet* p)
             // Strip Jaldi header and footer
             p->pull(Frame::header_size);
             p->take(Frame::footer_size);
-            return DATA;
+            output(out_port_data).push(p);
+            break;
 
+        case REQUEST_FRAME:
         case CONTENTION_SLOT:
         case VOIP_SLOT:
         case TRANSMIT_SLOT:
         case BITRATE_MESSAGE:
         case ROUND_COMPLETE_MESSAGE:
-            return CONTROL;
+        case DELAY_MESSAGE:
+            output(out_port_control).push(p);
+            break;
 
         default:
-            return BAD;
-    }
-}
-
-void JaldiDecap::push(int, Packet* p)
-{
-    switch (action(p))
-    {
-        case CONTROL:
-            output(0).push(p); break;
-
-        case DATA:
-            output(1).push(p); break;
-
-        default:
-            if (port_active(true, 2))
-                output(2).push(p);
-            else
-                p->kill();
+            checked_output_push(out_port_bad, p);
             break;
     }
 }
