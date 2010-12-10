@@ -203,16 +203,13 @@ void JaldiGate::push(int, Packet* p)
                     // Send one of our VoIP packets
                     while (cur_voip_queue < in_port_voip_overflow)
                     {
-                        Packet* vp = input(cur_voip_queue).pull();
+                        Packet* vp = input(cur_voip_queue++).pull();
 
                         if (vp)
                         {
                             output(out_port).push(vp);
-                            ++cur_voip_queue;
                             break;
                         }
-                        else
-                            ++cur_voip_queue;
                     }
                 }
                 else
@@ -252,15 +249,51 @@ void JaldiGate::push(int, Packet* p)
                 duration_us -= rp->length() / BITRATE__BYTES_PER_US + 1;
             }
 
-            // Send overflow VoIP frames
-            while ((next_frame_duration_us = voip_overflow_queue->head_length() / BITRATE__BYTES_PER_US + 1) > duration_us)
+            // Send VoIP frames that we will not receive a VoIP slot for
+            if (payload->voip_granted_flows < voip_requested_flows)
             {
-                // Pull the next frame, update stats, and send it
+                uint8_t skip_flows = payload->voip_granted_flows;
+                int cur_voip_queue = in_port_voip_first;
+                
+                // Send one of our VoIP packets
+                while (cur_voip_queue < in_port_voip_overflow)
+                {
+                    // Skip over any empty voip queues
+                    if (voip_queues[cur_voip_queue]->empty())
+                    {
+                        ++cur_voip_queue;
+                        continue;
+                    }
+
+                    // Skip over queues that will be handled by a VoIP slot
+                    if (skip_flows > 0)
+                    {
+                        ++cur_voip_queue;
+                        --skip_flows;
+                        continue;
+                    }
+
+                    // Skip over queues that we don't have time to send
+                    if ((next_frame_duration_us = voip_queues[cur_voip_queue]->head_length() / BITRATE__BYTES_PER_US + 1) < duration_us)
+                    {
+                        ++cur_voip_queue;
+                        continue;
+                    }
+
+                    // OK, it's safe to send a packet from this queue!
+                    Packet* vp = input(cur_voip_queue++).pull();
+                    output(out_port).push(vp);
+
+                    // Update remaining duration
+                    duration_us -= next_frame_duration_us;
+                }
+            }
+
+            // Send overflow VoIP frames
+            while (! voip_overflow_queue->empty() && (next_frame_duration_us = voip_overflow_queue->head_length() / BITRATE__BYTES_PER_US + 1) < duration_us)
+            {
+                // Pull the next frame and send it
                 Packet* vp = input(in_port_voip_overflow).pull();
-
-                if (vp == NULL)
-                    break;
-
                 output(out_port).push(vp);
 
                 // Update remaining duration
@@ -268,14 +301,10 @@ void JaldiGate::push(int, Packet* p)
             }
 
             // Send bulk frames
-            while ((next_frame_duration_us = bulk_queue->head_length() / BITRATE__BYTES_PER_US + 1) > duration_us)
+            while (! bulk_queue->empty() && (next_frame_duration_us = bulk_queue->head_length() / BITRATE__BYTES_PER_US + 1) < duration_us)
             {
                 // Pull the next frame, update stats, and send it
                 Packet* bp = input(in_port_bulk).pull();
-
-                if (bp == NULL)
-                    break;
-
                 bulk_requested_bytes -= bp->length();
                 output(out_port).push(bp);
 

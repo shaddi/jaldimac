@@ -172,6 +172,7 @@ JaldiQueue::deq()
     return 0;
 }
 
+// Report the total length, in bytes, of every packet in the queue.
 inline unsigned
 JaldiQueue::total_length()
 {
@@ -183,6 +184,8 @@ JaldiQueue::total_length()
     return size;
 }
 
+// Report the length, in bytes, of the packet at the head of the queue.
+// Unsafe is the queue is empty, so check first!
 inline unsigned
 JaldiQueue::head_length()
 {
