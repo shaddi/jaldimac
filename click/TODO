@@ -1,0 +1,3 @@
+- Add support for bulk ACKs - or, indeed, any ACKs at all!
+- Make a drop front variant of JaldiQueue for use with VoIP flows.
+- Complete this TODO list. =)

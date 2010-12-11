@@ -1,0 +1,129 @@
+// Shared definitions for Jaldimac click configurations
+
+// $HOST_IP, $HOST_MAC, $PROXY_ARP_NETWORK, and $STATION_ID must already be defined when this file is included!
+// Examples:
+// #define $HOST_IP 10.0.0.1
+// #define $HOST_MAC 00:11:22:33:44:55
+// #define $PROXY_ARP_NETWORK 10.0.0.0/24
+// #define $STATION_ID 1
+
+// ======================================================
+// Required packages
+// ======================================================
+require(package jaldi)
+
+// ======================================================
+// Constants
+// ======================================================
+
+// Ports that cause UDP traffic to be classified as VoIP
+#define $UDP_PORT_1 5004
+#define $UDP_PORT_2 5060
+
+// General network configuration
+#define $MTU 1500
+
+// Click port names
+#define $CONTROL 0
+#define $BULK 1
+#define $VOIP 2
+
+#define $VOIP_IN_1 2
+#define $VOIP_IN_2 3
+#define $VOIP_IN_3 4
+#define $VOIP_IN_4 5
+#define $VOIP_IN_OVERFLOW 6
+
+#define $VOIP_OUT_1 0
+#define $VOIP_OUT_2 1
+#define $VOIP_OUT_3 2
+#define $VOIP_OUT_4 3
+#define $VOIP_OUT_OVERFLOW 4
+
+#define $DATA 1
+
+#define $OUT 0
+
+#define $ARP_REPLY 0
+#define $ARP_QUERY 1
+#define $IP 2
+#define $OTHER 3
+
+#define $INTERNAL 0
+#define $HOST 1
+
+// Paint tags
+#define $LOCALLY_ORIGINATING 254
+
+// Configurable destination for traffic intended for host
+#define $TOHOST Discard
+//#define $TOHOST ToHost(eth0)
+
+// ======================================================
+// Components
+// ======================================================
+
+// TEMP --- REMOVE THIS --- TEMP
+
+elementclass PullToPush { input -> DelayUnqueue(0) -> output }
+elementclass JaldiFairness { input[$BULK] -> PullToPush -> [$BULK]output
+			     input[$CONTROL] -> PullToPush -> [$CONTROL]output
+			     input[$VOIP] -> PullToPush -> [$VOIP]output }
+elementclass JaldiScheduler { input[$BULK] -> PullToPush -> output
+			      input[$CONTROL] -> PullToPush -> Discard
+			      input[$VOIP] -> PullToPush -> Discard }
+
+// TEMP --- REMOVE THIS --- TEMP
+
+// Encapsulation / decapsulation
+elementclass EthernetToIP
+{
+	input -> Strip(14)					// Remove Ethernet header
+	      -> CheckIPHeader					// Check for legality and annotate
+	      -> output
+}
+
+elementclass JaldiToIP
+{
+	jd :: JaldiDecap($STATION_ID)
+	input -> jd
+	jd[$DATA] -> Paint($LOCALLY_ORIGINATING) -> [$DATA]output	// One output for data (IP packets)
+	jd[$CONTROL] -> [$CONTROL]output				// Another output for control info
+}
+
+elementclass IPToEthernet
+{
+	aq :: ARPQuerier($HOST_IP, $HOST_MAC)
+	input[$DATA] -> DecIPTTL -> ipf :: IPFragmenter($MTU)
+	ipf -> [$DATA]aq -> output			// Frames and ARP queries go to output
+	input[$ARP_REPLY] -> [$ARP_REPLY]aq		// ARP responses come in via input[$ARP-REPLY]
+}
+
+elementclass IPToJaldi
+{
+	$type, $src, $dest |
+	input -> JaldiEncap($type, $src, $dest) -> output
+}
+
+// Classifiers
+elementclass EthernetClassifier
+{
+	c :: Classifier(12/0806 20/0001,		// ARP queries
+			12/0806 20/0002,		// ARP responses
+			12/0800,			// IP packets
+			-);				// Other
+	
+	// This is defined in a verbose manner to clearly denote
+	// the names associated with each port.
+	input -> c
+	c[$ARP_QUERY] -> [$ARP_QUERY]output
+	c[$ARP_REPLY] -> [$ARP_REPLY]output
+	c[$IP] -> [$IP]output
+	c[$OTHER] -> [$OTHER]output
+}
+
+// Proxy ARP
+elementclass ProxyARP
+{
+	input -> ARPResponder($PROXY_ARP_NETWORK $HOST_MAC) -> output
+}

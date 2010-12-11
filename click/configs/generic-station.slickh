@@ -1,0 +1,89 @@
+// JaldiMAC Click configuration for the stations
+
+// ======================================================
+// Components
+// ======================================================
+
+// Include shared components
+#include "shared.slickh"
+
+// Sources (one from upstream, one from downstream)
+upstreamSource :: TimedSource(0.2)
+downstreamSource :: TimedSource(0.9)
+
+// Sinks (one to upstream, one to downstream)
+upstreamSink :: { input -> upstreamQueue :: JaldiQueue -> TimedSink(0.1) }
+downstreamSink :: { input -> downstreamQueue :: JaldiQueue -> TimedSink(0.1) }
+
+// Other routing elements
+arpReplyTee :: Tee
+
+// Classifiers
+elementclass IPClassifier
+{
+	ic :: IPClassifier(dst host $HOST_IP,
+			   dst udp port $UDP_PORT_1 or $UDP_PORT_2,
+			   -)
+
+	input -> ic
+	ic[0] -> [$OUT]output
+	ic[1] -> DropBroadcasts -> [$VOIP]output
+	ic[2] -> DropBroadcasts -> [$BULK]output
+}
+
+ethClassifier :: EthernetClassifier
+ipClassifier :: IPClassifier
+voipDemux :: JaldiVoIPDemux(3)
+
+// Encapsulation / decapsulation
+elementclass ToJaldiAndQueue
+{
+	// FIXME: IPToJaldi destination station is always zero right now
+	$type, $size |
+	input -> IPToJaldi($type, $STATION_ID, 0) -> JaldiQueue($size) -> output
+}
+
+ipToEth :: IPToEthernet
+jToIP :: JaldiToIP
+
+
+
+// Gate
+gate :: JaldiGate($STATION_ID)
+
+// ======================================================
+// Component Graph
+// ======================================================
+
+// Handle incoming Ethernet traffic
+downstreamSource -> ethClassifier
+
+ethClassifier[$ARP_QUERY] -> ProxyARP -> downstreamSink
+ethClassifier[$ARP_REPLY] -> arpReplyTee
+ethClassifier[$IP] -> EthernetToIP -> ipClassifier
+ethClassifier[$OTHER] -> Discard
+
+arpReplyTee[$INTERNAL] -> [$ARP_REPLY]ipToEth
+arpReplyTee[$HOST] -> $TOHOST
+
+// Handle IP traffic from master
+upstreamSource -> jToIP
+
+jToIP[$DATA] -> [$DATA]ipToEth
+jToIP[$CONTROL] -> [$CONTROL]gate
+
+// Handle IP traffic from downstream
+ipClassifier[$OUT] -> $TOHOST
+ipClassifier[$BULK] -> ToJaldiAndQueue(DATA_FRAME, 2000) -> [$BULK]gate
+ipClassifier[$VOIP] -> voipDemux
+
+// FIXME: Should really use a drop-front queue
+voipDemux[$VOIP_OUT_1] -> ToJaldiAndQueue(VOIP_FRAME, 10) -> [$VOIP_IN_1]gate
+voipDemux[$VOIP_OUT_2] -> ToJaldiAndQueue(VOIP_FRAME, 10) -> [$VOIP_IN_2]gate
+voipDemux[$VOIP_OUT_3] -> ToJaldiAndQueue(VOIP_FRAME, 10) -> [$VOIP_IN_3]gate
+voipDemux[$VOIP_OUT_4] -> ToJaldiAndQueue(VOIP_FRAME, 10) -> [$VOIP_IN_4]gate
+voipDemux[$VOIP_OUT_OVERFLOW] -> ToJaldiAndQueue(VOIP_FRAME, 10) -> [$VOIP_IN_OVERFLOW]gate
+
+// Outgoing traffic
+ipToEth -> downstreamSink
+gate -> upstreamSink
