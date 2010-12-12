@@ -16,7 +16,7 @@ encapsulates packets in Jaldi header
 
 Encapsulates each packet in the Jaldi header specified by its arguments.
 
-TYPE may be one of: DATA_FRAME, VOIP_FRAME, REQUEST_FRAME, CONTENTION_SLOT,
+TYPE may be one of: BULK_FRAME, VOIP_FRAME, REQUEST_FRAME, CONTENTION_SLOT,
 VOIP_SLOT, TRANSMIT_SLOT, ROUND_COMPLETE_MESSAGE, DELAY_MESSAGE, or
 BITRATE_MESSAGE.
 
@@ -33,10 +33,10 @@ output are agnostic, the second output is always push.
 
 =e
 
-Encapsulate packets in a Jaldi header with type DATA_FRAME,
+Encapsulate packets in a Jaldi header with type BULK_FRAME,
 destination station 2:
 
-  JaldiEncap(DATA_FRAME, 2)
+  JaldiEncap(BULK_FRAME, 2)
 
 =a
 

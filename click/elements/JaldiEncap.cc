@@ -36,8 +36,8 @@ int JaldiEncap::configure(Vector<String>& conf, ErrorHandler* errh)
         return -1;
 
     // Convert TYPE field from a string to the appropriate code
-    if (name_of_type.equals("DATA_FRAME", -1))
-        type = DATA_FRAME;
+    if (name_of_type.equals("BULK_FRAME", -1))
+        type = BULK_FRAME;
     else if (name_of_type.equals("VOIP_FRAME", -1))
         type = VOIP_FRAME;
     else if (name_of_type.equals("REQUEST_FRAME", -1))

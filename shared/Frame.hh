@@ -5,7 +5,7 @@ namespace jaldimac {
 
 enum FrameType
 {
-    DATA_FRAME = 0,
+    BULK_FRAME = 0,
     VOIP_FRAME,
     REQUEST_FRAME,
     CONTENTION_SLOT,
@@ -29,16 +29,24 @@ struct Frame
     uint8_t payload[0];     // Actual size determined by length
 
     // Static constants
-    static const size_t header_size = sizeof(preamble) + sizeof(dest_id) + sizeof(type)
-                                    + sizeof(length) + sizeof(seq);
-    static const size_t footer_size = sizeof(uint32_t) /* timestamp */;
-    static const size_t empty_frame_size = header_size + footer_size;
+    static const size_t header_size;
+    static const size_t footer_size;
+    static const size_t empty_frame_size;
 
     // Member functions
     inline void initialize();
     inline size_t payload_length() const { return length - empty_frame_size; }
 
 } __attribute__((__packed__));
+
+const size_t Frame::header_size = sizeof(Frame::preamble) + sizeof(Frame::src_id)
+                                + sizeof(Frame::dest_id) + sizeof(Frame::type)
+                                + sizeof(Frame::tag) + sizeof(Frame::length)
+                                + sizeof(Frame::seq);
+
+const size_t Frame::footer_size = sizeof(uint32_t); /* timestamp */
+
+const size_t Frame::empty_frame_size = Frame::header_size + Frame::footer_size;
 
 // Important constants:
 const uint8_t CURRENT_VERSION = 1;
@@ -53,7 +61,7 @@ inline void Frame::initialize()
     // Set up defaults for other values
     src_id = 0;
     dest_id = 0;
-    type = DATA_FRAME;
+    type = BULK_FRAME;
     tag = 0;
     length = empty_frame_size;
     seq = 0;
@@ -63,7 +71,7 @@ inline void Frame::initialize()
 // frame type.  After the payload comes an additional 32 bit TX timestamp which
 // is added by the driver; it is only used for debugging purposes and should
 // not affect the semantics of the protocol.
-// DATA_FRAME and VOIP_FRAME do not have a struct below as their payload consists
+// BULK_FRAME and VOIP_FRAME do not have a struct below as their payload consists
 // of an encapsulated IP packet.
 
 struct RequestFramePayload

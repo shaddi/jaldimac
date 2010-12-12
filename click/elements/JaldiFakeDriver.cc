@@ -96,7 +96,7 @@ void JaldiFakeDriver::run_timer(Timer*)
 
         switch (f->type)
         {
-            case DATA_FRAME:
+            case BULK_FRAME:
             case VOIP_FRAME:
             case REQUEST_FRAME:
             {

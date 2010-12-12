@@ -44,7 +44,7 @@ void JaldiDecap::push(int, Packet* p)
     // Classify the packet (Control, Data, or Bad)?
     switch (f->type)
     {
-        case DATA_FRAME:
+        case BULK_FRAME:
         case VOIP_FRAME:
             // Strip Jaldi header and footer
             p->pull(Frame::header_size);
