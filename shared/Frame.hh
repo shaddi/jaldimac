@@ -64,8 +64,7 @@ inline void Frame::initialize()
 // is added by the driver; it is only used for debugging purposes and should
 // not affect the semantics of the protocol.
 // DATA_FRAME and VOIP_FRAME do not have a struct below as their payload consists
-// of an encapsulated IP packet. ROUND_COMPLETE_MESSAGE does not have a struct
-// because it requires no payload.
+// of an encapsulated IP packet.
 
 struct RequestFramePayload
 {
@@ -93,6 +92,10 @@ struct TransmitSlotPayload
 struct BitrateMessagePayload
 {
     /* REPLACE WITH BITRATE ENUM TYPE */ uint32_t bitrate;
+} __attribute__((__packed__));
+
+struct RoundCompleteMessagePayload
+{
 } __attribute__((__packed__));
 
 struct DelayMessagePayload

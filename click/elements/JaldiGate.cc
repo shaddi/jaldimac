@@ -35,7 +35,7 @@ int JaldiGate::configure(Vector<String>& conf, ErrorHandler* errh)
              cpEnd) < 0)
         return -1;
 
-    // Check that we have the right number of output ports
+    // Check that we have the right number of input ports
     if (ninputs() != FLOWS_PER_VOIP_SLOT + 3)
         return errh->error("wrong number of input ports; need %<%d%>", FLOWS_PER_VOIP_SLOT + 3);
 

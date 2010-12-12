@@ -1,4 +1,4 @@
 - Add support for bulk ACKs - or, indeed, any ACKs at all!
 - Make a drop front variant of JaldiQueue for use with VoIP flows.
-- For VoIP, it makes sense to delay filling out the slot until the last possible moment. In the short term, could probably hack something together to plan the rest of the round out in advance while only filling in VoIP slots dynamically, but this suggests to me that in the long term a better design would be to do the whole schedule calculation online.
+- Make JaldiScheduler create the layout online instead of being an offline algorithm; this will enable better VoIP performance. (The current arrangement of inserting VoIP packets from upstream into the downstream transmissions dynamically in the fake driver is only a temporary hack.)
 - Complete this TODO list. =)
