@@ -344,6 +344,7 @@ void JaldiScheduler::generate_layout()
 
     // Generate the layout.
     bool done = false;
+    bool last_was_request = false;
     uint32_t round_pos_bytes = 0;
     while (! done)
     {
@@ -361,6 +362,7 @@ void JaldiScheduler::generate_layout()
             // Update state.
             next_deadline_bytes += INTER_VOIP_SLOT_DISTANCE__BYTES;
             round_pos_bytes += VOIP_SLOT_SIZE__BYTES;
+            last_was_request = true;
 
             goto top;
         }
@@ -370,7 +372,7 @@ void JaldiScheduler::generate_layout()
         // Are there any requests that can be fulfilled before the next deadline?
         for (unsigned station = 0 ; station < STATION_COUNT ; ++station)
         {
-            if (to_deadline_bytes >= MIN_CHUNK_SIZE__BYTES && bulk_granted_bytes[station] <= to_deadline_bytes)
+            if ((! last_was_request) && to_deadline_bytes >= MIN_CHUNK_SIZE__BYTES && bulk_granted_bytes[station] <= to_deadline_bytes)
             {
                 // Emit a TRANSMIT_SLOT.
                 TransmitSlotPayload* tsp;
@@ -382,6 +384,7 @@ void JaldiScheduler::generate_layout()
                 // Update state.
                 round_pos_bytes += bulk_granted_bytes[station];
                 bulk_granted_bytes[station] = 0;
+                last_was_request = true;
 
                 goto top;
             }
@@ -419,6 +422,8 @@ void JaldiScheduler::generate_layout()
                     }
                 } while (true);
 
+                last_was_request = false;
+
                 goto top;
             }
         }
@@ -426,7 +431,7 @@ void JaldiScheduler::generate_layout()
         // Are there any requests that can be partially fulfilled?
         for (unsigned station = 0 ; station < STATION_COUNT ; ++station)
         {
-            if (to_deadline_bytes >= MIN_CHUNK_SIZE__BYTES && bulk_granted_bytes[station] > to_deadline_bytes)
+            if ((! last_was_request) && to_deadline_bytes >= MIN_CHUNK_SIZE__BYTES && bulk_granted_bytes[station] > to_deadline_bytes)
             {
                 // Emit a TRANSMIT_SLOT.
                 TransmitSlotPayload* tsp;
@@ -438,6 +443,7 @@ void JaldiScheduler::generate_layout()
                 // Update state.
                 round_pos_bytes += to_deadline_bytes;
                 bulk_granted_bytes[station] -= to_deadline_bytes;
+                last_was_request = true;
 
                 goto top;
             }
@@ -472,6 +478,8 @@ void JaldiScheduler::generate_layout()
                         break;
                 } while (true);
 
+                last_was_request = false;
+
                 goto top;
             }
         }
@@ -499,6 +507,7 @@ void JaldiScheduler::generate_layout()
 
             // Update state.
             round_pos_bytes = next_deadline_bytes;
+            last_was_request = false;
 
             goto top;
         }
