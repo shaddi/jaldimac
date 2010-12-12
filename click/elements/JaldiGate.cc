@@ -157,7 +157,8 @@ void JaldiGate::push(int, Packet* p)
             {
                 // We need to send a request!
 
-                // If possible, create a delay message with a random delay within the contention slot
+		// If possible, create a delay message with a random delay
+		// within the contention slot
                 const ContentionSlotPayload* payload = (const ContentionSlotPayload*) f->payload;
                 uint32_t requested_duration_us = rp->length() / BITRATE__BYTES_PER_US + 1;
 
@@ -217,10 +218,7 @@ void JaldiGate::push(int, Packet* p)
                     // Construct a delay message frame for the driver
                     DelayMessagePayload* dmp;
                     WritablePacket* dp = make_jaldi_frame<DELAY_MESSAGE, DRIVER_ID>(station_id, dmp);
-                    dmp->duration_us = (Frame::empty_packet_size
-                                        + sizeof(RequestFramePayload)
-                                        + 2 * VOIP_MTU__BYTES)
-                                       / BITRATE__BYTES_PER_US + 1;
+                    dmp->duration_us = VOIP_SLOT_SIZE__BYTES / BITRATE__BYTES_PER_US + 1;
 
                     // Send it
                     output(out_port).push(dp);

@@ -1,0 +1,18 @@
+elementclass Injectorizer {
+       input
+       -> EtherEncap(0x9000, a1:a1:ff:a1:ff:ff, ff:ff:ff:0f:ff:ff) // note the address we put here doesn't matter: everyone gets everything 'cause they're all in monitor mode!  probably should set them to something distinctive for debugging purposes
+       -> WifiEncap(0x00, 0:0:0:0:0:0)  // same applies here
+       -> Unstrip(18)
+       -> StoreData(0, DATA \<00 00 10 00 08 0c 08 00 3c 14 20 80 0c
+00 03 00>) // radiotap header: same for all stations. may need to be updated later, but I think it's set to the way we want it (5180Mhz, MCS 3)
+       -> output
+}
+
+inject :: Injectorizer;
+
+InfiniteSource(DATA \<01 01 01 01 02 02 02 02 03 03 03 03 a0 a0 a0 a0>, // your input goes here, this is dummy data
+        LIMIT 5, STOP false)
+       -> inject
+       -> Align(4, 0)    // in case we're not on x86
+       -> Print(snd, MAXLENGTH -1)
+       -> ToDevice(mon0);

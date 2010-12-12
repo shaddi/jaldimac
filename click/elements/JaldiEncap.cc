@@ -96,7 +96,7 @@ Packet* JaldiEncap::action(Packet* p)
     f->dest_id = dest_id;
     f->src_id = src_id;
     f->type = type;
-    f->length = Frame::empty_packet_size + p1->length();
+    f->length = Frame::empty_frame_size + p1->length();
     f->seq = seq++;
 
     // Kill intermediate packets that are now unnecessary

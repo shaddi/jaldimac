@@ -1,0 +1,5 @@
+FromDevice(mon0)
+-> RadiotapDecap() -> Strip(2) // we're using a custom radiotap header, so we need to strip 2 more bytes
+-> WifiDecap()
+-> Strip(14)  // strip ethernet
+-> Print(recv, MAXLENGTH -1) -> Discard // you get the payload + the 4 bytes are the crc32.
