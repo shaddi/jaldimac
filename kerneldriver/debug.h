@@ -30,6 +30,6 @@ enum JALDI_DEBUG_LEVEL {
 void jaldi_print(int level, const char *fmt, ...)
 	__attribute__ ((format (printf, 2, 3)));
 
-#define JALDI_DEBUG_LEVEL JALDI_INFO
+#define JALDI_DEBUG_LEVEL JALDI_DEBUG
 
 #endif /* JALDI_DEBUG_H */

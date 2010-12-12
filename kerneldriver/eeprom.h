@@ -670,8 +670,7 @@ struct eeprom_ops {
 	void (*set_board_values)(struct jaldi_hw *hw, struct jaldi_channel *chan);
 	void (*set_addac)(struct jaldi_hw *hw, struct jaldi_channel *chan);
 	void (*set_txpower)(struct jaldi_hw *hw, struct jaldi_channel *chan,
-			   u16 cfgCtl, u8 twiceAntennaReduction,
-			   u8 twiceMaxRegulatoryPower, u8 powerLimit);
+			   u8 powerLimit);
 	u16 (*get_spur_channel)(struct jaldi_hw *hw, u16 i, bool is2GHz);
 };
 
