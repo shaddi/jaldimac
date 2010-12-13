@@ -39,10 +39,13 @@ struct Frame
 
 } __attribute__((__packed__));
 
-const size_t Frame::header_size = sizeof(Frame::preamble) + sizeof(Frame::src_id)
-                                + sizeof(Frame::dest_id) + sizeof(Frame::type)
-                                + sizeof(Frame::tag) + sizeof(Frame::length)
-                                + sizeof(Frame::seq);
+const size_t Frame::header_size = 4 * sizeof(uint8_t) /* preamble */
+				+ sizeof(uint8_t) /* src_id */
+                                + sizeof(uint8_t) /* dest_id */
+				+ sizeof(uint8_t) /* type */
+                                + sizeof(uint8_t) /* tag */
+				+ sizeof(uint32_t) /* length */
+                                + sizeof(uint32_t) /* seq */;
 
 const size_t Frame::footer_size = sizeof(uint32_t); /* timestamp */
 
