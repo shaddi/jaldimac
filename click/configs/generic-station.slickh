@@ -8,7 +8,7 @@
 #include "shared.slickh"
 
 // Classifiers
-elementclass IPClassifier
+elementclass StationIPClassifier
 {
 	ic :: IPClassifier(ip dscp 2,	// Station 1 VoIP
 			   ip dscp 4,	// Station 2 VoIP
@@ -24,7 +24,7 @@ elementclass IPClassifier
 	ic[4] -> [$OUT]output
 }
 
-ipClassifier :: IPClassifier
+ipClassifier :: StationIPClassifier
 voipDemux :: JaldiVoIPDemux(3)
 
 // Encapsulation / decapsulation

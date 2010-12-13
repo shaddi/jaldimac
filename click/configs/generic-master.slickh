@@ -21,7 +21,7 @@
 #include "shared.slickh"
 
 // Classifier
-elementclass IPClassifier
+elementclass MasterIPClassifier
 {
 	// For now the number of stations is fixed to 4.
 	ic :: IPClassifier(ip dscp 1,	// Station 1 bulk
@@ -46,7 +46,7 @@ elementclass IPClassifier
 	ic[8] -> [$OUT]output
 }
 
-ipClassifier :: IPClassifier
+ipClassifier :: MasterIPClassifier
 
 // Encapsulation / decapsulation
 jaldiDecap :: JaldiDecap($MASTER_ID)
