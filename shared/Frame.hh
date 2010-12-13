@@ -122,7 +122,8 @@ const unsigned MEGABIT__BYTES = 1000000 /* bits */ / 8 /* bytes */;
 const unsigned ETH_10_MEGABIT__BYTES_PER_US = (MEGABIT__BYTES * 10 /* hz */) / 1000000 /* us/s */;
 const unsigned ETH_100_MEGABIT__BYTES_PER_US = (MEGABIT__BYTES * 100 /* hz */) / 1000000 /* us/s */;
 const unsigned ETH_1000_MEGABIT__BYTES_PER_US = (MEGABIT__BYTES * 1000 /* hz */) / 1000000 /* us/s */;
-const unsigned BITRATE__BYTES_PER_US = ETH_100_MEGABIT__BYTES_PER_US;
+const unsigned WIFI_20_MEGABIT__BYTES_PER_US = (MEGABIT__BYTES * 20 /* hz */) / 1000000 /* us/s */;
+const unsigned BITRATE__BYTES_PER_US = WIFI_20_MEGABIT__BYTES_PER_US;
 
 // VoIP-related constants:
 const uint32_t VOIP_SLOT_GUARD_SIZE__BYTES = 2 * BULK_MTU__BYTES;
@@ -134,7 +135,7 @@ const uint32_t MIN_CHUNK_SIZE__BYTES = BITRATE__BYTES_PER_US * 1 /* ms */ * 1000
 const uint32_t MAX_ROUND_SIZE__BYTES = BITRATE__BYTES_PER_US * 500 /* ms */ * 1000 /* us/ms */;
 const uint32_t CONTENTION_SLOT_DURATION__US = 50 /* ms */ * 1000 /* us/ms */;
 const uint32_t INTER_VOIP_SLOT_DISTANCE__BYTES = BITRATE__BYTES_PER_US * 40 /* ms */ * 1000 /* us/ms */;
-const uint32_t CONTENTION_SLOT_ONLY_DISTANCE__US = 5 /* ms */ * 1000 /* us/ms */;
+const uint32_t DEFAULT_CONTENTION_SLOT_ONLY_DISTANCE__US = 50 /* ms */ * 1000 /* us/ms */;
 
 // Other temporary constants:
 const unsigned STATION_COUNT = 4;

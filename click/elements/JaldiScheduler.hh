@@ -7,7 +7,7 @@ CLICK_DECLS
 /*
 =c
 
-JaldiScheduler
+JaldiScheduler(CSONLYRATELIMIT)
 
 =s jaldi
 
@@ -36,6 +36,11 @@ another element) as soon as the traffic arrives. JaldiScheduler has one push
 output (though a second push output may be connected to receive erroneous
 packets).  Everything arriving on the inputs should be encapsulated in Jaldi
 frames.
+
+The CSONLYRATELIMIT parameter, if specified, indicates the minimum time between
+contention-slot-only rounds in microseconds. (i.e., rounds which contain
+neither data from upstream nor requests from the stations) If this parameter is
+not specified, a reasonable default is chosen.
 
 =a
 
@@ -86,6 +91,7 @@ class JaldiScheduler : public Element { public:
     uint32_t bulk_granted_bytes[jaldimac::STATION_COUNT];
     uint32_t bulk_granted_upstream_bytes[jaldimac::STATION_COUNT];
 
+    uint32_t rate_limit_distance_us;
     timeval rate_limit_until;
 };
 

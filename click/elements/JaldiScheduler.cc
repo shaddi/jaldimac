@@ -20,7 +20,8 @@ using namespace std;
 
 CLICK_DECLS
 
-JaldiScheduler::JaldiScheduler() : granted_voip(false)
+JaldiScheduler::JaldiScheduler() : granted_voip(false),
+                                   rate_limit_distance_us(DEFAULT_CONTENTION_SLOT_ONLY_DISTANCE__US)
 {
 }
 
@@ -28,8 +29,19 @@ JaldiScheduler::~JaldiScheduler()
 {
 }
 
-int JaldiScheduler::configure(Vector<String>&, ErrorHandler* errh)
+int JaldiScheduler::configure(Vector<String>& conf, ErrorHandler* errh)
 {
+    bool rld_supplied = false;
+             
+    // Parse configuration parameters
+    if (cp_va_kparse(conf, this, errh,
+             "CSONLYRATELIMIT", cpkP+cpkC, &rld_supplied, cpUnsigned, &rate_limit_distance_us,
+             cpEnd) < 0)
+        return -1;
+
+    if (! rld_supplied)
+        rate_limit_distance_us = DEFAULT_CONTENTION_SLOT_ONLY_DISTANCE__US;
+
     // We should have 1 input port for every station and 2 control inputs
     if (ninputs() != STATION_COUNT + 2)
         return errh->error("wrong number of input ports connected; need two control ports and a bulk port for each station");
@@ -99,6 +111,8 @@ void JaldiScheduler::take_state(Element* old, ErrorHandler*)
             bulk_granted_bytes[station] = oldJS->bulk_granted_bytes[station];
             bulk_granted_upstream_bytes[station] = oldJS->bulk_granted_upstream_bytes[station];
         }
+
+        rate_limit_until = oldJS->rate_limit_until;
     }
 }
 
@@ -165,7 +179,7 @@ void JaldiScheduler::push(int, Packet* p)
                     gettimeofday(&rate_limit_until, NULL);
 
                     // Advance.
-                    rate_limit_until.tv_usec += CONTENTION_SLOT_ONLY_DISTANCE__US;
+                    rate_limit_until.tv_usec += rate_limit_distance_us;
 
                     // Normalize.
                     while (rate_limit_until.tv_usec > 1000000)
