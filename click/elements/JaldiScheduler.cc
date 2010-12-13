@@ -21,7 +21,8 @@ using namespace std;
 CLICK_DECLS
 
 JaldiScheduler::JaldiScheduler() : granted_voip(false),
-                                   rate_limit_distance_us(DEFAULT_CONTENTION_SLOT_ONLY_DISTANCE__US)
+                                   rate_limit_distance_us(DEFAULT_CONTENTION_SLOT_ONLY_DISTANCE__US),
+                                   timer(this)
 {
 }
 
@@ -86,6 +87,10 @@ int JaldiScheduler::initialize(ErrorHandler* errh)
     // Initialize rate limit.
     gettimeofday(&rate_limit_until, NULL);
 
+    // Initialize timer.
+    timer.initialize(this);
+    timer.schedule_now();
+
     // Success!
     return 0;
 }
@@ -114,6 +119,12 @@ void JaldiScheduler::take_state(Element* old, ErrorHandler*)
 
         rate_limit_until = oldJS->rate_limit_until;
     }
+}
+
+void JaldiScheduler::run_timer(Timer*)
+{
+    // Pretend we received a ROUND_COMPLETE_MESSAGE.
+    received_round_complete_message();
 }
 
 void JaldiScheduler::push(int, Packet* p)
@@ -161,76 +172,7 @@ void JaldiScheduler::push(int, Packet* p)
 
             p->kill();
 
-            // Count the frames destined for each station in the queues.
-            count_upstream();
-
-            // Rate limit contention-slot-only rounds.
-            if (! have_data_or_requests())
-            {
-                timeval now;
-                gettimeofday(&now, NULL);
-
-                if (now.tv_sec < rate_limit_until.tv_sec || (now.tv_sec == rate_limit_until.tv_sec && now.tv_usec < rate_limit_until.tv_usec))
-                    break;      // Don't create round.
-                else
-                {
-                    // OK to create round, but first, determine time at which
-                    // it's ok to send the _next_ contention-slot-only round.
-                    gettimeofday(&rate_limit_until, NULL);
-
-                    // Advance.
-                    rate_limit_until.tv_usec += rate_limit_distance_us;
-
-                    // Normalize.
-                    while (rate_limit_until.tv_usec > 1000000)
-                    {
-                        ++rate_limit_until.tv_sec;
-                        rate_limit_until.tv_usec -= 1000000;
-                    }
-
-                    // Go ahead and create round...
-                }
-            }
-
-            /*
-            for (unsigned station = 0 ; station < STATION_COUNT ; ++station)
-            {
-                click_chatter("Station: %u BRB: %u VRF: %u BUB: %u",
-                              station, bulk_requested_bytes[station],
-                              unsigned(voip_requested_flows[station]),
-                              bulk_upstream_bytes[station]);
-            }
-            */
-
-            // Run a fairness algorithm over the upstream frames and requests
-            // to determine the allocation each station will receive.
-            compute_fair_allocation();
-
-            /*
-            for (unsigned station = 0 ; station < STATION_COUNT ; ++station)
-            {
-                click_chatter("Station: %u VG: %u BGB: %u BGUB: %u",
-                              station, unsigned(voip_granted_by_station[station]),
-                              bulk_granted_bytes[station],
-                              bulk_granted_upstream_bytes[station]);
-            }
-
-            click_chatter("Granted_voip: %s", granted_voip ? "true" : "false");
-            click_chatter("voip_granted.duration_us: %u", voip_granted.duration_us);
-
-            for (unsigned flow = 0 ; flow < FLOWS_PER_VOIP_SLOT ; ++flow)
-            {
-                click_chatter("Flow %u: station %u", flow,
-                              unsigned(voip_granted.stations[flow]));
-            }
-            */
-
-            // Actually compute a layout based on this allocation.
-            generate_layout();
-
-            // Reset VoIP requests; they must be re-requested every round.
-            for (unsigned station = 0 ; station < STATION_COUNT ; ++station)
-                voip_requested_flows[station] = 0;
+            received_round_complete_message();
 
             break;
         }
@@ -242,6 +184,84 @@ void JaldiScheduler::push(int, Packet* p)
             break;
         }
     }
+}
+
+void JaldiScheduler::received_round_complete_message()
+{
+    // Count the frames destined for each station in the queues.
+    count_upstream();
+
+    // Rate limit contention-slot-only rounds.
+    if (! have_data_or_requests())
+    {
+        timeval now;
+        gettimeofday(&now, NULL);
+
+        if (now.tv_sec < rate_limit_until.tv_sec || (now.tv_sec == rate_limit_until.tv_sec && now.tv_usec < rate_limit_until.tv_usec))
+        {
+            // Don't create round; just reschedule timer.
+            timer.reschedule_after_msec(1);
+            return;
+        }
+        else
+        {
+            // OK to create round, but first, determine time at which
+            // it's ok to send the _next_ contention-slot-only round.
+            gettimeofday(&rate_limit_until, NULL);
+
+            // Advance.
+            rate_limit_until.tv_usec += rate_limit_distance_us;
+
+            // Normalize.
+            while (rate_limit_until.tv_usec > 1000000)
+            {
+                ++rate_limit_until.tv_sec;
+                rate_limit_until.tv_usec -= 1000000;
+            }
+
+            // Go ahead and create round...
+        }
+    }
+
+    /*
+    for (unsigned station = 0 ; station < STATION_COUNT ; ++station)
+    {
+        click_chatter("Station: %u BRB: %u VRF: %u BUB: %u",
+        station, bulk_requested_bytes[station],
+        unsigned(voip_requested_flows[station]),
+        bulk_upstream_bytes[station]);
+    }
+    */
+
+    // Run a fairness algorithm over the upstream frames and requests
+    // to determine the allocation each station will receive.
+    compute_fair_allocation();
+
+    /*
+    for (unsigned station = 0 ; station < STATION_COUNT ; ++station)
+    {
+        click_chatter("Station: %u VG: %u BGB: %u BGUB: %u",
+        station, unsigned(voip_granted_by_station[station]),
+        bulk_granted_bytes[station],
+        bulk_granted_upstream_bytes[station]);
+    }
+
+    click_chatter("Granted_voip: %s", granted_voip ? "true" : "false");
+    click_chatter("voip_granted.duration_us: %u", voip_granted.duration_us);
+
+    for (unsigned flow = 0 ; flow < FLOWS_PER_VOIP_SLOT ; ++flow)
+    {
+        click_chatter("Flow %u: station %u", flow,
+        unsigned(voip_granted.stations[flow]));
+    }
+    */
+
+    // Actually compute a layout based on this allocation.
+    generate_layout();
+
+    // Reset VoIP requests; they must be re-requested every round.
+    for (unsigned station = 0 ; station < STATION_COUNT ; ++station)
+        voip_requested_flows[station] = 0;
 }
 
 bool JaldiScheduler::have_data_or_requests()

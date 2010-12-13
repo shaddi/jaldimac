@@ -63,9 +63,11 @@ class JaldiScheduler : public Element { public:
     bool can_live_reconfigure() const   { return true; }
     void take_state(Element*, ErrorHandler*);
 
+    void run_timer(Timer*);
     void push(int, Packet*);
 
   private:
+    void received_round_complete_message();
     bool have_data_or_requests();
     void count_upstream();
     bool try_to_allocate_voip_request(unsigned, unsigned&);
@@ -93,6 +95,7 @@ class JaldiScheduler : public Element { public:
 
     uint32_t rate_limit_distance_us;
     timeval rate_limit_until;
+    Timer timer;
 };
 
 CLICK_ENDDECLS
