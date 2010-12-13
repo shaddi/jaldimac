@@ -4,6 +4,7 @@
 
 CONFIGURATIONS=master station-1 station-2 station-3 station-4
 ELEMENTS_CONFIGURATION=--enable-userlevel
+CHECK?=no
 
 # ========================================
 # Internal and derived variables
@@ -67,7 +68,10 @@ clean:
 	cp $< $(BUILDDIR)/config
 	ar rcs $@ $(BUILDDIR)/config $(JALDI_PACKAGE_BINARY) $(JALDI_ELEMENT_MAP)
 	#click -q $@ || (rm -f $@ && rm -f $< && false)
-	click -q $@ || (echo "Click configuration failed sanity check; if the problem is real, remember to run 'make clean' before running 'make' again." && true)
+ifeq ($(CHECK),no)
+else
+	click -q $@ || (echo "Click configuration failed sanity check; if the problem is real, remember to run 'make clean' before running 'make' again.\n" && true)
+endif
 
 $(ELEMENTDIR)/Makefile:
 	cd $(ELEMENTDIR) && autoconf && ./configure $(ELEMENTS_CONFIGURATION)

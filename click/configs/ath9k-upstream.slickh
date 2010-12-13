@@ -1,6 +1,6 @@
-// JaldiMAC Click configuration for downstream traffic from an ath9k monitor device
+// JaldiMAC Click configuration for upstream traffic from an ath9k monitor device
 
-// Defines $DOWNSTREAM_SOURCE and $DOWNSTREAM_SINK for ath9k monitor-mode devices.
+// Defines $UPSTREAM_SOURCE and $UPSTREAM_SINK for ath9k monitor-mode devices.
 
 // ======================================================
 // Component Graph
@@ -33,5 +33,5 @@ elementclass ToMonitor
 fromMonitor :: FromMonitor
 toMonitor :: ToMonitor
 
-#define $DOWNSTREAM_SOURCE fromMonitor
-#define $DOWNSTREAM_SINK toMonitor
+#define $UPSTREAM_SOURCE fromMonitor
+#define $UPSTREAM_SINK toMonitor
