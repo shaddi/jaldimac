@@ -122,4 +122,5 @@ Packet* JaldiEncap::pull(int)
 }
 
 CLICK_ENDDECLS
+ELEMENT_REQUIRES(Frame)
 EXPORT_ELEMENT(JaldiEncap)

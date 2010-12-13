@@ -1,6 +1,8 @@
 #ifndef FRAME_HH
 #define FRAME_HH
 
+#include <cstring>
+
 namespace jaldimac {
 
 enum FrameType
@@ -39,18 +41,6 @@ struct Frame
 
 } __attribute__((__packed__));
 
-const size_t Frame::header_size = 4 * sizeof(uint8_t) /* preamble */
-				+ sizeof(uint8_t) /* src_id */
-                                + sizeof(uint8_t) /* dest_id */
-				+ sizeof(uint8_t) /* type */
-                                + sizeof(uint8_t) /* tag */
-				+ sizeof(uint32_t) /* length */
-                                + sizeof(uint32_t) /* seq */;
-
-const size_t Frame::footer_size = sizeof(uint32_t); /* timestamp */
-
-const size_t Frame::empty_frame_size = Frame::header_size + Frame::footer_size;
-
 // Important constants:
 const uint8_t CURRENT_VERSION = 1;
 const uint8_t PREAMBLE[4] = {'J', 'L', 'D', CURRENT_VERSION};
@@ -59,7 +49,7 @@ const unsigned FLOWS_PER_VOIP_SLOT = 4;
 inline void Frame::initialize()
 {
     // Set up preamble
-    memcpy(preamble, PREAMBLE, sizeof(PREAMBLE));
+    std::memcpy(preamble, PREAMBLE, sizeof(PREAMBLE));
 
     // Set up defaults for other values
     src_id = 0;

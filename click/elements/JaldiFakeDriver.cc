@@ -225,4 +225,5 @@ void JaldiFakeDriver::run_timer(Timer*)
 }
 
 CLICK_ENDDECLS
+ELEMENT_REQUIRES(Frame)
 EXPORT_ELEMENT(JaldiFakeDriver)

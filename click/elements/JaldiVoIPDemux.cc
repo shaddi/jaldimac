@@ -80,4 +80,5 @@ void JaldiVoIPDemux::push(int, Packet* p)
 }
 
 CLICK_ENDDECLS
+ELEMENT_REQUIRES(Frame)
 EXPORT_ELEMENT(JaldiVoIPDemux)

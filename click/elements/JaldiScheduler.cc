@@ -522,4 +522,5 @@ void JaldiScheduler::generate_layout()
 }
 
 CLICK_ENDDECLS
+ELEMENT_REQUIRES(Frame)
 EXPORT_ELEMENT(JaldiScheduler)

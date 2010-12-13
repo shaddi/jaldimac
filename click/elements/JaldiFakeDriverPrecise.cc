@@ -244,4 +244,5 @@ bool JaldiFakeDriverPrecise::run_task(Task*)
 }
 
 CLICK_ENDDECLS
+ELEMENT_REQUIRES(Frame)
 EXPORT_ELEMENT(JaldiFakeDriverPrecise)
