@@ -61,6 +61,7 @@ class JaldiScheduler : public Element { public:
     void push(int, Packet*);
 
   private:
+    bool have_data_or_requests();
     void count_upstream();
     bool try_to_allocate_voip_request(unsigned, unsigned&);
     void allocate_voip_to_no_one(unsigned);
@@ -84,6 +85,8 @@ class JaldiScheduler : public Element { public:
     jaldimac::VoIPSlotPayload voip_granted;
     uint32_t bulk_granted_bytes[jaldimac::STATION_COUNT];
     uint32_t bulk_granted_upstream_bytes[jaldimac::STATION_COUNT];
+
+    timeval rate_limit_until;
 };
 
 CLICK_ENDDECLS

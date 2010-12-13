@@ -71,6 +71,9 @@ int JaldiScheduler::initialize(ErrorHandler* errh)
         bulk_granted_upstream_bytes[station] = 0;
     }
 
+    // Initialize rate limit.
+    gettimeofday(&rate_limit_until, NULL);
+
     // Success!
     return 0;
 }
@@ -147,6 +150,35 @@ void JaldiScheduler::push(int, Packet* p)
             // Count the frames destined for each station in the queues.
             count_upstream();
 
+            // Rate limit contention-slot-only rounds.
+            if (! have_data_or_requests())
+            {
+                timeval now;
+                gettimeofday(&now, NULL);
+
+                if (now.tv_sec < rate_limit_until.tv_sec || (now.tv_sec == rate_limit_until.tv_sec && now.tv_usec < rate_limit_until.tv_usec))
+                    break;      // Don't create round.
+                else
+                {
+                    // OK to create round, but first, determine time at which
+                    // it's ok to send the _next_ contention-slot-only round.
+                    gettimeofday(&rate_limit_until, NULL);
+
+                    // Advance.
+                    rate_limit_until.tv_usec += CONTENTION_SLOT_ONLY_DISTANCE__US;
+
+                    // Normalize.
+                    while (rate_limit_until.tv_usec > 1000000)
+                    {
+                        ++rate_limit_until.tv_sec;
+                        rate_limit_until.tv_usec -= 1000000;
+                    }
+
+                    // Go ahead and create round...
+                }
+            }
+
+            /*
             for (unsigned station = 0 ; station < STATION_COUNT ; ++station)
             {
                 click_chatter("Station: %u BRB: %u VRF: %u BUB: %u",
@@ -154,11 +186,13 @@ void JaldiScheduler::push(int, Packet* p)
                               unsigned(voip_requested_flows[station]),
                               bulk_upstream_bytes[station]);
             }
+            */
 
             // Run a fairness algorithm over the upstream frames and requests
             // to determine the allocation each station will receive.
             compute_fair_allocation();
 
+            /*
             for (unsigned station = 0 ; station < STATION_COUNT ; ++station)
             {
                 click_chatter("Station: %u VG: %u BGB: %u BGUB: %u",
@@ -175,6 +209,7 @@ void JaldiScheduler::push(int, Packet* p)
                 click_chatter("Flow %u: station %u", flow,
                               unsigned(voip_granted.stations[flow]));
             }
+            */
 
             // Actually compute a layout based on this allocation.
             generate_layout();
@@ -193,6 +228,17 @@ void JaldiScheduler::push(int, Packet* p)
             break;
         }
     }
+}
+
+bool JaldiScheduler::have_data_or_requests()
+{
+    for (unsigned station = 0 ; station < STATION_COUNT ; ++station)
+    {
+        if (bulk_requested_bytes[station] > 0 || voip_requested_flows[station] > 0 || bulk_upstream_bytes[station] > 0)
+            return true;
+    }
+
+    return false;
 }
 
 void JaldiScheduler::count_upstream()

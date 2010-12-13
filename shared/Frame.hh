@@ -134,6 +134,7 @@ const uint32_t MIN_CHUNK_SIZE__BYTES = BITRATE__BYTES_PER_US * 1 /* ms */ * 1000
 const uint32_t MAX_ROUND_SIZE__BYTES = BITRATE__BYTES_PER_US * 500 /* ms */ * 1000 /* us/ms */;
 const uint32_t CONTENTION_SLOT_DURATION__US = 50 /* ms */ * 1000 /* us/ms */;
 const uint32_t INTER_VOIP_SLOT_DISTANCE__BYTES = BITRATE__BYTES_PER_US * 40 /* ms */ * 1000 /* us/ms */;
+const uint32_t CONTENTION_SLOT_ONLY_DISTANCE__US = 5 /* ms */ * 1000 /* us/ms */;
 
 // Other temporary constants:
 const unsigned STATION_COUNT = 4;
