@@ -1,6 +1,7 @@
 #ifndef CLICK_JALDISCHEDULER_HH
 #define CLICK_JALDISCHEDULER_HH
 #include <click/element.hh>
+#include "Frame.hh"
 CLICK_DECLS
 
 /*
