@@ -50,7 +50,7 @@ class JaldiScheduler : public Element { public:
 
     const char* class_name() const  { return "JaldiScheduler"; }
     const char* port_count() const  { return "2-/1-2"; }
-    const char* processing() const  { return "hl/h"; }
+    const char* processing() const  { return "hhl/h"; }
     const char* flow_code() const   { return COMPLETE_FLOW; }
 
     int configure(Vector<String>&, ErrorHandler*);

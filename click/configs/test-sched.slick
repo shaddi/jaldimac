@@ -4,7 +4,7 @@ sched :: JaldiScheduler
 
 elementclass BulkGen
 {
-	InfiniteSource(DATA \<00>, LIMIT 100, BURST 1, STOP false)
+	InfiniteSource(DATA \<00>, LIMIT 1, BURST 1, STOP false)
 		-> IPEncap(6, 192.168.0.1, 192.168.0.2)
 		-> CheckIPHeader
 		-> JaldiEncap(BULK_FRAME, 1, 2)

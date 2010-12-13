@@ -144,12 +144,37 @@ void JaldiScheduler::push(int, Packet* p)
 
             p->kill();
 
-            // Count the frames destined for each st ation in the queues.
+            // Count the frames destined for each station in the queues.
             count_upstream();
+
+            for (unsigned station = 0 ; station < STATION_COUNT ; ++station)
+            {
+                click_chatter("Station: %u BRB: %u VRF: %u BUB: %u",
+                              station, bulk_requested_bytes[station],
+                              unsigned(voip_requested_flows[station]),
+                              bulk_upstream_bytes[station]);
+            }
 
             // Run a fairness algorithm over the upstream frames and requests
             // to determine the allocation each station will receive.
             compute_fair_allocation();
+
+            for (unsigned station = 0 ; station < STATION_COUNT ; ++station)
+            {
+                click_chatter("Station: %u VG: %u BGB: %u BGUB: %u",
+                              station, unsigned(voip_granted_by_station[station]),
+                              bulk_granted_bytes[station],
+                              bulk_granted_upstream_bytes[station]);
+            }
+
+            click_chatter("Granted_voip: %s", granted_voip ? "true" : "false");
+            click_chatter("voip_granted.duration_us: %u", voip_granted.duration_us);
+
+            for (unsigned flow = 0 ; flow < FLOWS_PER_VOIP_SLOT ; ++flow)
+            {
+                click_chatter("Flow %u: station %u", flow,
+                              unsigned(voip_granted.stations[flow]));
+            }
 
             // Actually compute a layout based on this allocation.
             generate_layout();
@@ -372,7 +397,7 @@ void JaldiScheduler::generate_layout()
         // Are there any requests that can be fulfilled before the next deadline?
         for (unsigned station = 0 ; station < STATION_COUNT ; ++station)
         {
-            if ((! last_was_request) && to_deadline_bytes >= MIN_CHUNK_SIZE__BYTES && bulk_granted_bytes[station] <= to_deadline_bytes)
+            if ((! last_was_request) && to_deadline_bytes >= MIN_CHUNK_SIZE__BYTES && bulk_granted_bytes[station] <= to_deadline_bytes && bulk_granted_bytes[station] > 0)
             {
                 // Emit a TRANSMIT_SLOT.
                 TransmitSlotPayload* tsp;
@@ -393,7 +418,7 @@ void JaldiScheduler::generate_layout()
         // Are there any upstream transfers that can be fulfilled before the deadline?
         for (unsigned station = 0 ; station < STATION_COUNT ; ++station)
         {
-            if (bulk_granted_upstream_bytes[station] <= to_deadline_bytes)
+            if (bulk_granted_upstream_bytes[station] <= to_deadline_bytes && bulk_granted_upstream_bytes[station] > 0)
             {
                 do
                 {
