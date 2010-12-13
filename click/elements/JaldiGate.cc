@@ -67,8 +67,6 @@ int JaldiGate::initialize(ErrorHandler* errh)
 
         if (! (voip_queues[voip_port] = (JaldiQueue*) filter[0]->cast("JaldiQueue")))
             return errh->error("VoIP queue %<%s%> on input port %<%d%> is not a valid JaldiQueue (cast failed)", filter[0]->name().c_str(), in_port_voip_first + voip_port);
-
-        click_chatter("Initted VoIP port %d", in_port_voip_first + voip_port);
     }
 
     // Find the nearest upstream VoIP overflow queue
