@@ -1,10 +1,10 @@
 // Shared definitions for Jaldimac click configurations
 
-// $HOST_IP, $HOST_MAC, $PROXY_ARP_NETWORK, and $STATION_ID must already be defined when this file is included!
+// $HOST_IP, $HOST_IP_NETMASK, and $STATION_ID must already be defined when
+// this file is included!
 // Examples:
 // #define $HOST_IP 10.0.0.1
-// #define $HOST_MAC 00:11:22:33:44:55
-// #define $PROXY_ARP_NETWORK 10.0.0.0/24
+// #define $HOST_IP_NETMASK 10.0.0.1/24
 // #define $STATION_ID 1
 
 // ======================================================
@@ -16,14 +16,19 @@ require(package jaldi)
 // Constants
 // ======================================================
 
-// Ports that cause UDP traffic to be classified as VoIP
-#define $UDP_PORT_1 5004
-#define $UDP_PORT_2 5060
-
 // General network configuration
-#define $MTU 1500
+#define $BULK_MTU 1500
 
-// Click port names
+// Jaldi station IDs
+#define $DRIVER_ID 0
+#define $BROADCAST_ID 0
+#define $MASTER_ID 1
+#define $STATION_1_ID 2
+#define $STATION_2_ID 3
+#define $STATION_3_ID 4
+#define $STATION_4_ID 5
+
+// Click port names - this really needs to be redone but no time right now
 #define $CONTROL 0
 #define $BULK 1
 #define $VOIP 2
@@ -40,6 +45,10 @@ require(package jaldi)
 #define $VOIP_OUT_4 3
 #define $VOIP_OUT_OVERFLOW 4
 
+#define $ALL_VOIP 1
+
+#define $ALT_CONTROL 1
+
 #define $DATA 1
 
 #define $OUT 0
@@ -52,60 +61,34 @@ require(package jaldi)
 #define $INTERNAL 0
 #define $HOST 1
 
-// Paint tags
-#define $LOCALLY_ORIGINATING 254
-
-// Configurable destination for traffic intended for host
-#define $TOHOST Discard
-//#define $TOHOST ToHost(eth0)
+#define $DRIVER_FROM_DOWNSTREAM 0
+#define $DRIVER_FROM_SCHEDULER 1
+#define $DRIVER_UPSTREAM_VOIP 2
+#define $DRIVER_TO_DOWNSTREAM 1
 
 // ======================================================
 // Components
 // ======================================================
 
-// TEMP --- REMOVE THIS --- TEMP
-
-elementclass PullToPush { input -> DelayUnqueue(0) -> output }
-elementclass JaldiFairness { input[$BULK] -> PullToPush -> [$BULK]output
-			     input[$CONTROL] -> PullToPush -> [$CONTROL]output
-			     input[$VOIP] -> PullToPush -> [$VOIP]output }
-elementclass JaldiScheduler { input[$BULK] -> PullToPush -> output
-			      input[$CONTROL] -> PullToPush -> Discard
-			      input[$VOIP] -> PullToPush -> Discard }
-
-// TEMP --- REMOVE THIS --- TEMP
-
-// Encapsulation / decapsulation
+// Since we've switched to using tun interfaces we don't need to deal with
+// Ethernet, but for now we can keep these elementclasses around in case they
+// become useful again.
+/*
 elementclass EthernetToIP
 {
-	input -> Strip(14)					// Remove Ethernet header
-	      -> CheckIPHeader					// Check for legality and annotate
+	input -> Strip(14)	// Remove Ethernet header
+	      -> CheckIPHeader	// Check for legality and annotate
 	      -> output
-}
-
-elementclass JaldiToIP
-{
-	jd :: JaldiDecap($STATION_ID)
-	input -> jd
-	jd[$DATA] -> Paint($LOCALLY_ORIGINATING) -> [$DATA]output	// One output for data (IP packets)
-	jd[$CONTROL] -> [$CONTROL]output				// Another output for control info
 }
 
 elementclass IPToEthernet
 {
-	aq :: ARPQuerier($HOST_IP, $HOST_MAC)
+	aq :: ARPQuerier($HOST_IP, $HOST_MAC
 	input[$DATA] -> DecIPTTL -> ipf :: IPFragmenter($MTU)
-	ipf -> [$DATA]aq -> output			// Frames and ARP queries go to output
-	input[$ARP_REPLY] -> [$ARP_REPLY]aq		// ARP responses come in via input[$ARP-REPLY]
+	ipf -> [$DATA]aq -> output		// Frames and ARP queries go to output
+	input[$ARP_REPLY] -> [$ARP_REPLY]aq	// ARP responses come in via input[$ARP-REPLY]
 }
 
-elementclass IPToJaldi
-{
-	$type, $src, $dest |
-	input -> JaldiEncap($type, $src, $dest) -> output
-}
-
-// Classifiers
 elementclass EthernetClassifier
 {
 	c :: Classifier(12/0806 20/0001,		// ARP queries
@@ -127,3 +110,4 @@ elementclass ProxyARP
 {
 	input -> ARPResponder($PROXY_ARP_NETWORK $HOST_MAC) -> output
 }
+*/
