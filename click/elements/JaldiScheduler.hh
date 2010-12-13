@@ -29,10 +29,10 @@ REQUEST_FRAME) or from the driver. (e.g. ROUND_COMPLETE_MESSAGE) Input 1 (push)
 is a second input for control Jaldi frames for use by other elements; in
 particular, this input is intended to be used by an InfiniteSource or similar
 to jumpstart the scheduling process by sending a single initial
-ROUND_COMPLETE_MESSAGE. Inputs 2 thru STATIONS + 1 (pull) are for bulk Jaldi frames
-destined for each station.  VoIP traffic destined for the stations is not
-handled by the scheduler at all; instead, it is inserted dynamically (by
-another element) as soon as the traffic arrives. JaldiScheduler  has one push
+ROUND_COMPLETE_MESSAGE. Inputs 2 thru STATIONS + 1 (pull) are for bulk Jaldi
+frames destined for each station.  VoIP traffic destined for the stations is
+not handled by the scheduler at all; instead, it is inserted dynamically (by
+another element) as soon as the traffic arrives. JaldiScheduler has one push
 output (though a second push output may be connected to receive erroneous
 packets).  Everything arriving on the inputs should be encapsulated in Jaldi
 frames.

@@ -11,7 +11,6 @@
 #include <algorithm>
 
 #include "JaldiPrint.hh"
-#include "Frame.hh"
 
 using namespace jaldimac;
 using namespace std;
@@ -42,54 +41,8 @@ int JaldiPrint::configure(Vector<String>& conf, ErrorHandler* errh)
     return 0;
 }
 
-Packet* JaldiPrint::action(Packet* p)
+void JaldiPrint::show_raw_payload(const Frame* f)
 {
-    // Treat the packet as a Frame
-    const Frame* f = (const Frame*) p->data();
-
-    // Print header
-    click_chatter("===========================");
-
-    click_chatter("Preamble: %c%c%c%u    Source: %u    Dest: %u\n", f->preamble[0], f->preamble[1], f->preamble[2], unsigned(f->preamble[3]), f->src_id, f->dest_id);
-
-    switch (f->type)
-    {
-        case BULK_FRAME:
-            click_chatter("Type: BULK_FRAME\n"); break;
-
-        case VOIP_FRAME:
-            click_chatter("Type: VOIP_FRAME\n"); break;
-
-        case REQUEST_FRAME:
-            click_chatter("Type: REQUEST_FRAME\n"); break;
-
-        case CONTENTION_SLOT:
-            click_chatter("Type: CONTENTION_SLOT\n"); break;
-
-        case VOIP_SLOT:
-            click_chatter("Type: VOIP_SLOT\n"); break;
-
-        case TRANSMIT_SLOT:
-            click_chatter("Type: TRANSMIT_SLOT\n"); break;
-
-        case BITRATE_MESSAGE:
-            click_chatter("Type: BITRATE_MESSAGE\n"); break;
-
-        case ROUND_COMPLETE_MESSAGE:
-            click_chatter("Type: ROUND_COMPLETE_MESSAGE\n"); break;
-
-        case DELAY_MESSAGE:
-            click_chatter("Type: DELAY_MESSAGE\n"); break;
-
-        default:
-            click_chatter("Type: <<<UNKNOWN TYPE>>>\n"); break;
-    }
-
-    click_chatter("Tag: %u    Length: %u    Payload Length: %u    Sequence Number: %u\n",
-                  unsigned(f->tag), unsigned(f->length),
-                  unsigned(f->payload_length()), unsigned(f->seq));
-
-    // Print payload (if requested)
     if (show_contents)
     {
         char buffer[5000];
@@ -108,7 +61,115 @@ Packet* JaldiPrint::action(Packet* p)
 
         *buf = '\0';
 
-        click_chatter("Payload: %s\n", buffer);
+        click_chatter("Payload: %s", buffer);
+    }
+}
+
+Packet* JaldiPrint::action(Packet* p)
+{
+    // Treat the packet as a Frame
+    const Frame* f = (const Frame*) p->data();
+
+    // Print header
+    click_chatter("===========================");
+
+    click_chatter("Preamble: %c%c%c%u    Source: %u    Dest: %u",
+                  f->preamble[0], f->preamble[1], f->preamble[2],
+                  unsigned(f->preamble[3]), f->src_id, f->dest_id);
+
+    click_chatter("Tag: %u    Length: %u    Payload Length: %u    Sequence #: %u",
+                  unsigned(f->tag), unsigned(f->length),
+                  unsigned(f->payload_length()), unsigned(f->seq));
+
+    switch (f->type)
+    {
+        case BULK_FRAME:
+        {
+            click_chatter("Type: BULK_FRAME");
+            show_raw_payload(f);
+            break;
+        }
+
+        case VOIP_FRAME:
+        {
+            click_chatter("Type: VOIP_FRAME");
+            show_raw_payload(f);
+            break;
+        }
+
+        case REQUEST_FRAME:
+        {
+            const RequestFramePayload* rfp = (const RequestFramePayload*) f->payload;
+            click_chatter("Type: REQUEST_FRAME    Bulk request (bytes): %u    VoIP request (flows): %u",
+                          rfp->bulk_request_bytes, unsigned(rfp->voip_request_flows));
+
+            show_raw_payload(f);
+            break;
+        }
+
+        case CONTENTION_SLOT:
+        {
+            const ContentionSlotPayload* csp = (const ContentionSlotPayload*) f->payload;
+            click_chatter("Type: CONTENTION_SLOT    Duration (us): %u",
+                          csp->duration_us);
+            
+            show_raw_payload(f);
+            break;
+        }
+
+        case VOIP_SLOT:
+        {
+            // FIXME: Don't hardcode the number of flows per VoIP slot
+            const VoIPSlotPayload* vsp = (const VoIPSlotPayload*) f->payload;
+            click_chatter("Type: VOIP_SLOT    Duration (us): %u    Stations: %u %u %u %u",
+                          vsp->duration_us, unsigned(vsp->stations[0]),
+                          unsigned(vsp->stations[1]), unsigned(vsp->stations[2]),
+                          unsigned(vsp->stations[3]));
+            
+            show_raw_payload(f);
+            break;
+        }
+
+        case TRANSMIT_SLOT:
+        {
+            const TransmitSlotPayload* tsp = (const TransmitSlotPayload*) f->payload;
+            click_chatter("Type: TRANSMIT_SLOT    Duration (us): %u    Granted VoIP flows: %u",
+                          tsp->duration_us, unsigned(tsp->voip_granted_flows));
+            
+            show_raw_payload(f);
+            break;
+        }
+
+        case BITRATE_MESSAGE:
+        {
+            const BitrateMessagePayload* bmp = (const BitrateMessagePayload*) f->payload;
+            click_chatter("Type: BITRATE_MESSAGE    Bitrate: %u", bmp->bitrate);
+            
+            show_raw_payload(f);
+            break;
+        }
+
+        case ROUND_COMPLETE_MESSAGE:
+        {
+            click_chatter("Type: ROUND_COMPLETE_MESSAGE");
+            
+            show_raw_payload(f);
+            break;
+        }
+
+
+        case DELAY_MESSAGE:
+        {
+            const DelayMessagePayload* dmp = (const DelayMessagePayload*) f->payload;
+            click_chatter("Type: DELAY_MESSAGE    Duration (us): %u",
+                          dmp->duration_us);
+            
+            show_raw_payload(f);
+            break;
+        }
+
+        default:
+            click_chatter("Type: <<<UNKNOWN TYPE>>>\n"); break;
     }
 
     click_chatter("===========================");

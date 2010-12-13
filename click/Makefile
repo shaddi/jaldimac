@@ -2,7 +2,8 @@
 # Configuration
 # ========================================
 
-CONFIGURATIONS=master station-1 station-2 station-3 station-4 test-encap test-demux test-gate
+TESTS=test-encap test-demux test-gate test-sched
+CONFIGURATIONS=master station-1 station-2 station-3 station-4 $(TESTS)
 ELEMENTS_CONFIGURATION=--enable-userlevel
 CHECK?=no
 

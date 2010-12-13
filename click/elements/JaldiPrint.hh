@@ -1,6 +1,7 @@
 #ifndef CLICK_JALDIPRINT_HH
 #define CLICK_JALDIPRINT_HH
 #include <click/element.hh>
+#include "Frame.hh"
 CLICK_DECLS
 
 /*
@@ -37,6 +38,7 @@ class JaldiPrint : public Element { public:
     int configure(Vector<String>&, ErrorHandler*);
     bool can_live_reconfigure() const   { return true; }
 
+    void show_raw_payload(const jaldimac::Frame*);
     Packet* action(Packet* p);
     void push(int, Packet*);
     Packet* pull(int);
