@@ -60,7 +60,7 @@ driver :: JaldiFakeDriverPrecise
 // ======================================================
 
 // Handle incoming upstream traffic
-$UPSTREAM_SOURCE -> ipClassifier
+$UPSTREAM_SOURCE -> CheckIPHeader -> ipClassifier
 ipClassifier[$OUT] -> $UPSTREAM_SINK
 ipClassifier[$ALL_VOIP] -> JaldiQueue(2000) -> [$DRIVER_UPSTREAM_VOIP]driver
 ipClassifier[$STATION_1_BULK] -> JaldiQueue(2000) -> [$STATION_1_BULK]scheduler

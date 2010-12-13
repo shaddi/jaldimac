@@ -7,7 +7,7 @@
 #include <click/error.hh>
 #include <click/glue.hh>
 #include <clicknet/ip.h>
-#include <clicknet/tcp.h>
+#include <clicknet/udp.h>
 
 #include "Frame.hh"
 #include "JaldiVoIPDemux.hh"
@@ -45,11 +45,21 @@ void JaldiVoIPDemux::push(int, Packet* p)
     time_t current_time = time(NULL);
 
     // Get destination IP and port of this packet
-    if (! (p->has_network_header() && p->has_transport_header()))
+    if (! p->has_network_header())
+    {
         checked_output_push(out_port_bad, p);
+        return;
+    }
 
     const in_addr dest_ip = p->ip_header()->ip_dst;
-    uint16_t dest_port = p->tcp_header()->th_dport;
+
+    if (! p->ip_header()->ip_p == IP_PROTO_UDP)
+    {
+        checked_output_push(out_port_bad, p);
+        return;
+    }
+
+    uint16_t dest_port = p->udp_header()->uh_dport;
 
     // Check for an output port already assigned to this 2-tuple
     for (unsigned i = 0 ; i < FLOWS_PER_VOIP_SLOT ; ++i)

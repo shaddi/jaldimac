@@ -67,6 +67,8 @@ int JaldiGate::initialize(ErrorHandler* errh)
 
         if (! (voip_queues[voip_port] = (JaldiQueue*) filter[0]->cast("JaldiQueue")))
             return errh->error("VoIP queue %<%s%> on input port %<%d%> is not a valid JaldiQueue (cast failed)", filter[0]->name().c_str(), in_port_voip_first + voip_port);
+
+        click_chatter("Initted VoIP port %d", in_port_voip_first + voip_port);
     }
 
     // Find the nearest upstream VoIP overflow queue
@@ -251,10 +253,10 @@ void JaldiGate::push(int, Packet* p)
             if (payload->voip_granted_flows < voip_requested_flows)
             {
                 uint8_t skip_flows = payload->voip_granted_flows;
-                int cur_voip_queue = in_port_voip_first;
-                
+                unsigned cur_voip_queue = 0;
+
                 // Send one of our VoIP packets
-                while (cur_voip_queue < in_port_voip_overflow)
+                while (cur_voip_queue < FLOWS_PER_VOIP_SLOT)
                 {
                     // Skip over any empty voip queues
                     if (voip_queues[cur_voip_queue]->empty())
@@ -279,7 +281,7 @@ void JaldiGate::push(int, Packet* p)
                     }
 
                     // OK, it's safe to send a packet from this queue!
-                    Packet* vp = input(cur_voip_queue++).pull();
+                    Packet* vp = input(in_port_voip_first + cur_voip_queue++).pull();
                     output(out_port).push(vp);
 
                     // Update remaining duration

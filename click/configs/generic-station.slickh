@@ -45,7 +45,7 @@ gate :: JaldiGate($STATION_ID)
 // ======================================================
 
 // Handle incoming downstream traffic
-$DOWNSTREAM_SOURCE -> ipClassifier
+$DOWNSTREAM_SOURCE -> CheckIPHeader -> ipClassifier
 
 ipClassifier[$OUT] -> ToJaldiAndQueue(BULK_FRAME, 2000) -> [$BULK]gate
 ipClassifier[$ALL_VOIP] -> voipDemux

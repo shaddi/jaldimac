@@ -185,7 +185,7 @@ JaldiQueue::total_length()
 }
 
 // Report the length, in bytes, of the packet at the head of the queue.
-// Unsafe is the queue is empty, so check first!
+// Unsafe if the queue is empty, so check first!
 inline unsigned
 JaldiQueue::head_length()
 {

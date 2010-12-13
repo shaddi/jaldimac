@@ -96,12 +96,8 @@ Packet* JaldiEncap::action(Packet* p)
     f->dest_id = dest_id;
     f->src_id = src_id;
     f->type = type;
-    f->length = Frame::empty_frame_size + p1->length();
+    f->length = Frame::empty_frame_size + length;
     f->seq = seq++;
-
-    // Kill intermediate packets that are now unnecessary
-    p->kill();
-    p0->kill();
 
     // Return the final encapsulated packet
     return p1;
