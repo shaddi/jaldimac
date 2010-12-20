@@ -203,6 +203,8 @@ struct jaldi_softc {
 	spinlock_t sc_serial_rw;
 	spinlock_t sc_pm_lock;
 
+	struct hrtimer tx_timer;
+
 	u32 intrstatus; // keep track of reason for interrupt
 	u32 sc_flags; 
 	bool hw_ready; // flag to see if hw is ready
@@ -234,6 +236,8 @@ struct jaldi_softc {
 
 	/* ops */
 	// none at softc level yet...
+
+	struct jaldi_debug debug;
 };
 
 static const struct net_device_ops jaldi_netdev_ops;

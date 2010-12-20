@@ -62,12 +62,14 @@ unlock:
 void jaldi_tx_enqueue(struct jaldi_softc *sc, struct jaldi_packet *pkt) {
 	unsigned long flags;
 	
-	spin_lock_irqsave(&sc->sc_netdevlock, flags);
+//	spin_lock_irqsave(&sc->sc_netdevlock, flags);
 	if(sc->tx_queue == NULL || pkt->tx_time < sc->tx_queue->tx_time){
+		jaldi_print(JALDI_DEBUG, "adding to front\n");
 		/* New packet goes in front */
 		pkt->next = sc->tx_queue;
 		sc->tx_queue = pkt;
 	} else {
+		jaldi_print(JALDI_DEBUG, "adding to back\n");
 		struct jaldi_packet *curr = sc->tx_queue;
 		while(curr->next != NULL && pkt->tx_time < curr->next->tx_time){	
 			curr = curr->next;
@@ -75,7 +77,7 @@ void jaldi_tx_enqueue(struct jaldi_softc *sc, struct jaldi_packet *pkt) {
 		pkt->next = curr->next;
 		curr->next = pkt;
 	}
-	spin_unlock_irqrestore(&sc->sc_netdevlock, flags);
+//	spin_unlock_irqrestore(&sc->sc_netdevlock, flags);
 }
 
 /* Returns the next jaldi_packet to be transmitted */
@@ -83,10 +85,10 @@ struct jaldi_packet *jaldi_tx_dequeue(struct jaldi_softc *sc) {
 	struct jaldi_packet *pkt;
 	unsigned long flags;
 	
-	spin_lock_irqsave(&sc->sc_netdevlock, flags);
+//	spin_lock_irqsave(&sc->sc_netdevlock, flags);
 	pkt = sc->tx_queue;
 	if (pkt != NULL) sc->tx_queue = pkt->next;
-	spin_unlock_irqrestore(&sc->sc_netdevlock, flags);
+//	spin_unlock_irqrestore(&sc->sc_netdevlock, flags);
 	return pkt;
 }
 
@@ -818,8 +820,10 @@ void jaldi_drain_all_txq(struct jaldi_softc *sc, bool retry_tx)
 }
 
 
-int get_jaldi_tx_from_skb(struct sk_buff *skb) {
-	return 0; // TODO: decide on a packet format and implement this by reading protocol header field
+long get_jaldi_tx_from_skb(struct sk_buff *skb) {
+//	return 0; // TODO: decide on a packet format and implement this by reading protocol header field
+	return NSEC_PER_SEC/10;
+
 }
 
 int jaldi_pkt_type(struct sk_buff *skb)
@@ -1026,11 +1030,22 @@ int jaldi_hw_tx(struct jaldi_softc *sc, struct jaldi_packet *pkt)
 	// do a check to make sure the qeueu we're on doesn't exceed our max length... TODO
 	
 	jaldi_tx_start_dma(sc, pkt, bf);
-	
+		
 	return 0;
 }
 
-//void jaldi_timer_tx(
+
+enum hrtimer_restart jaldi_timer_tx(struct hrtimer *handle)
+{
+	struct jaldi_packet *pkt;
+	struct jaldi_softc *sc = container_of(handle, struct jaldi_softc,
+						tx_timer); 
+	DBG_START_MSG;
+	pkt = jaldi_tx_dequeue(sc);
+	jaldi_hw_tx(sc, pkt);
+
+	return HRTIMER_NORESTART;
+}
 
 /* 
  * This function receives an sk_buff from the kernel, and packages it up into a
@@ -1077,21 +1092,27 @@ int jaldi_tx(struct sk_buff *skb, struct net_device *dev)
 	pkt->type = jaldi_pkt_type(skb);
 
 	
-	/* add jaldi packet to tx_queue */
-	//jaldi_tx_enqueue(sc,pkt); // should add packet to proper software queue
-
-	/* create kernel timer for packet transmission */
-/*	struct timer_list tx_timer;
-	init_timer(&tx_timer);
-	tx_timer.function = jaldi_timer_tx;
-	tx_timer.data = (unsigned long)*pkt;
-	tx_timer.expires = pkt->tx_time;*/
+//	printk(KERN_DEBUG "jaldi hai: pkt len is %d\n", pkt->skb->len);
 
 	/* check for type: control packet or standard */
 	if( pkt->type == JALDI_PKT_TYPE_CONTROL ) { // should check header
 		jaldi_hw_ctl(sc, pkt);
 	} else {
-		jaldi_hw_tx(sc, pkt);
+	//	jaldi_hw_tx(sc, pkt);
+		if(pkt->skb->len < 150) {
+			getnstimeofday(&sc->debug.ts);
+			/* add jaldi packet to tx_queue */
+			jaldi_tx_enqueue(sc,pkt);
+			/* create kernel timer for packet transmission */
+			sc->tx_timer.function = jaldi_timer_tx;
+			hrtimer_start(&sc->tx_timer, ktime_set(0,pkt->tx_time), HRTIMER_MODE_REL);
+			sc->debug.intended_tx_times[(sc->debug.intended_tx_idx)%2048] = timespec_to_ns(&sc->debug.ts)+pkt->tx_time;
+			sc->debug.intended_tx_idx++;
+//			printk(KERN_DEBUG "jaldi hai: tx intend: %lld\n", pkt->tx_time);
+		} else {
+			printk(KERN_DEBUG "jaldi hai: regular send\n");
+			jaldi_hw_tx(sc,pkt);
+		}
 	}
 	
 	return 0;
@@ -1250,10 +1271,11 @@ void jaldi_tasklet(unsigned long data)
 
 }
 
-void jaldi_cleanup(void)
+static void __exit jaldi_cleanup(void)
 {
 	jaldi_ahb_exit();
 	jaldi_pci_exit();
+	jaldi_debug_remove_root();
 	jaldi_print(JALDI_INFO, "JaldiMAC driver removed.\n");
 	return;
 }
@@ -1271,11 +1293,18 @@ void jaldi_attach_netdev_ops(struct net_device *dev)
 	dev->netdev_ops = &jaldi_netdev_ops;
 }
 
-int jaldi_init_module(void)
+static int __init jaldi_init_module(void)
 {
 	int result, ret = -ENODEV;
 	DBG_START_MSG;
 	printk(KERN_INFO "jaldi: Loading JaldiMAC kernel driver. Debug level is %d.\n", JALDI_DEBUG_LEVEL);
+
+	result = jaldi_debug_create_root();
+	if (result) {
+		printk(KERN_ERR "jaldi: unable to create debugfs root: %d\n", 
+			result);
+		goto err_out;
+	}
 
 	result = jaldi_pci_init();
 	if (result < 0) {
@@ -1299,6 +1328,8 @@ int jaldi_init_module(void)
 err_ahb:
 	jaldi_pci_exit();
 err_pci:
+	jaldi_debug_remove_root();
+err_out:
 	return ret;
 }
 

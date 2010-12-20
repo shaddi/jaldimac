@@ -1,15 +1,13 @@
 /*
  * Jaldi Debugging
  * 
- * Todo: 
- * - Currently just a wrapper around printk; need to implement some debug level control
- * 
  * Originally based on ath's debug.
  */
 
 #ifndef JALDI_DEBUG_H
 #define JALDI_DEBUG_H
 
+#include <linux/debugfs.h>
 #include "jaldi.h"
 
 #define JALDI_DEBUG_ON 1
@@ -27,9 +25,29 @@ enum JALDI_DEBUG_LEVEL {
 	JALDI_DEBUG = 4,
 };
 
+struct jaldi_debug {
+	struct dentry *debugfs;
+	u32 regidx;
+	struct timespec ts;
+	int actual_tx_idx;
+	int intended_tx_idx;
+	s64 actual_tx_times[2048];
+	s64 intended_tx_times[2048];
+};
+
+
+static struct dentry *jaldi_debugfs_root;
+
+int jaldi_init_debug(struct jaldi_hw *hw);
+void jaldi_exit_debug(struct jaldi_hw *hw);
+int jaldi_debug_create_root(void);
+void jaldi_debug_remove_root(void);
+
+void jaldi_print_skb(struct sk_buff *skb);
+
 void jaldi_print(int level, const char *fmt, ...)
 	__attribute__ ((format (printf, 2, 3)));
 
-#define JALDI_DEBUG_LEVEL JALDI_DEBUG
+#define JALDI_DEBUG_LEVEL JALDI_FATAL
 
 #endif /* JALDI_DEBUG_H */

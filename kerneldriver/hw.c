@@ -1655,10 +1655,19 @@ void jaldi_hw_puttxbuf(struct jaldi_hw *hw, u32 q, u32 txdp)
 }
 
 void jaldi_hw_txstart(struct jaldi_hw *hw, u32 q)
-{
+{	
+	s64 tx_start_time;
+	struct jaldi_softc *sc = hw->sc;
 	jaldi_print(JALDI_DEBUG,
 		  "Enable TXE on queue: %u\n", q);
+	
+	getnstimeofday(&sc->debug.ts);
 	REG_WRITE(hw, AR_Q_TXE, 1 << q);
+	tx_start_time = (timespec_to_ns(&sc->debug.ts)); 
+//	printk(KERN_DEBUG "jaldi hai: tx start %lld\n", tx_start_time);
+	sc->debug.actual_tx_times[(sc->debug.actual_tx_idx)%2048] = tx_start_time; // 2048 is len of tx_start_times
+//	printk(KERN_EMERG "jaldi hai: tx start rec %lld at %d\n", sc->debug.actual_tx_times[sc->debug.actual_tx_idx], sc->debug.actual_tx_idx);
+	sc->debug.actual_tx_idx++;
 }
 
 bool jaldi_hw_stoptxdma(struct jaldi_hw *hw, u32 q)

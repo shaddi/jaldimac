@@ -468,12 +468,20 @@ int jaldi_init_softc(u16 devid, struct jaldi_softc *sc, u16 subsysid, const stru
 	tasklet_init(&sc->intr_tq, jaldi_tasklet, (unsigned long)sc);
 	/* init tasklets and other locks here */
 
+	hrtimer_init(&sc->tx_timer,CLOCK_REALTIME, HRTIMER_MODE_ABS);
+
 	hw->bus_ops->read_cachesize(sc, &csz); 
 	sc->cachelsz = csz;
 
 	/* ath9k reads cache line size here... may be relevant */
 	ret = jaldi_hw_init(hw);
 	if (ret) goto err_hw;
+
+	ret = jaldi_init_debug(hw);
+	if (ret) {
+		jaldi_print(JALDI_WARN, "Couldn't create debubfs\n");
+		goto err_debug;
+	}
 
 	sc->chans[JALDI_2GHZ] = jaldi_2ghz_chantable;
 	sc->chans[JALDI_5GHZ] = jaldi_5ghz_chantable;
@@ -485,6 +493,8 @@ int jaldi_init_softc(u16 devid, struct jaldi_softc *sc, u16 subsysid, const stru
 	
 err_queues:
 	jaldi_hw_deinit(hw);
+err_debug:
+	jaldi_exit_debug(hw);
 err_hw:
 	tasklet_kill(&sc->intr_tq);
 	kfree(hw);
